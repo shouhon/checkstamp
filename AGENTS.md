@@ -2,7 +2,7 @@
 
 ## 正本と今回の構成
 
-- 製品仕様は [要件定義書.md](要件定義書.md)、開発環境と操作は [README.md](README.md)、実装順と現在地は [開発計画](docs/development-plan.md)を参照する。
+- 製品仕様は [要件定義書](docs/requirements.md)、開発環境と操作は [README.md](README.md)、実装順と現在地は [開発計画](docs/development-plan.md)を参照する。
 - Goの単一モジュールを使用する。モジュール名は `github.com/shouhon/checkstamp` とし、外部ライブラリは導入していない。
 - 初版の対象はWindows 11・PowerShell。通常の実行ファイルを引数配列で起動し、暗黙にシェルを起動しない。
 - 実行できるコードがあるパッケージだけを作る。将来用の空パッケージや汎用層は追加しない。

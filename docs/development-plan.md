@@ -2,7 +2,7 @@
 
 ## 目標と参照先
 
-[要件定義書](../要件定義書.md)の受入条件を満たす、Windows向けのGo製CLIを実装します。開発環境は [README](../README.md)、変更・版管理の規則は [AGENTS.md](../AGENTS.md)を正本とします。
+[要件定義書](requirements.md)の受入条件を満たす、Windows向けのGo製CLIを実装します。開発環境は [README](../README.md)、変更・版管理の規則は [AGENTS.md](../AGENTS.md)を正本とします。
 
 現在の完了範囲はM2です。入力収集と記録保存の内部処理を実装しました。`run`・`status` からの検証実行・照合は未実装です。
 

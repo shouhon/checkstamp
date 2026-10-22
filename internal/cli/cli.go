@@ -33,7 +33,7 @@ CLIから検証の実行や記録の保存は行いません。
   Gitで管理する場合は、必要に応じて .gitignore に /.checkstamp/ を追加してください。
   checkstamp 自身が .gitignore を変更することはありません。
 
-仕様は 要件定義書.md、実装順は docs/development-plan.md を参照してください。
+仕様は docs/requirements.md、実装順は docs/development-plan.md を参照してください。
 `
 
 // Run は案内を出力して終了コードを返す。呼び出し元のプロセスは終了しない。
