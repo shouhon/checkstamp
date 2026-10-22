@@ -10,8 +10,9 @@ import (
 
 const helpText = `checkstamp - 検証結果と指定した入力の状態を結び付けるCLI
 
-現在は開発基盤のセットアップ版です。--help と --version を利用できます。
-run と status の本体は未実装です。検証の実行や記録の保存は行いません。
+現在は入力収集と記録保存の内部基盤まで実装しています。
+--help と --version を利用できます。run と status の本体は未実装です。
+CLIから検証の実行や記録の保存は行いません。
 
 使い方:
   checkstamp --help

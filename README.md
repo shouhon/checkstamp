@@ -2,12 +2,12 @@
 
 検証コマンドの結果と、明示したファイルの状態を結び付けて保存する、Windows向けの非対話型CLIです。仕様の正本は[要件定義書](要件定義書.md)です。
 
-現在はGoの開発基盤を整えた段階です。日本語の `--help` と `--version` を実装しています。`run`・`status`、入力の収集、記録、JSON出力は[開発計画](docs/development-plan.md)に沿って実装します。現在の `run` は125、`status` は2で終了し、検証成功とは扱いません。
+現在はGoの開発基盤と、入力収集・記録保存の内部処理まで実装しています。日本語の `--help` と `--version` を利用できます。`run`・`status`、子プロセスの実行、結果のJSON出力は[開発計画](docs/development-plan.md)に沿って実装します。現在の `run` は125、`status` は2で終了し、検証成功とは扱いません。
 
 ## 開発環境
 
 - Windows 11・PowerShell 7。
-- Go 1.27.0以上。同じ条件での再現には、今回検証したGo 1.27.2を使用します。
+- Go 1.27.0以上。同じ条件での再現には、今回検証したGo 1.27.3を使用します。
 - 外部のGoモジュール、追加の開発ツール、環境変数の設定は不要です。
 
 `go.mod` の `go` 指定は最低対応版です。既存のGoを使用しており、セットアップのためのインストールは行っていません。モジュール名は、[GitHubリポジトリ](https://github.com/shouhon/checkstamp)に対応する `github.com/shouhon/checkstamp` です。
@@ -52,6 +52,9 @@ Goファイルを整形するときは `gofmt -w ./cmd ./internal` を使用し�
 | --- | --- |
 | `cmd/checkstamp` | OSの入出力と終了コードをCLIへ接続する入口 |
 | `internal/cli` | 日本語の案内、引数エラー、未実装コマンドの診断とテスト |
+| `internal/input` | 明示した入力の収集、種類とSHA-256、追加・削除・変更の差分 |
+| `internal/record` | 保存先の所有確認、開始・完了記録の保存と形式検査 |
+| `internal/workspace` | Windowsの相対パス、再解析ポイント、作業範囲内の読取 |
 | `internal/version/VERSION` | CLIの版番号の正本。ビルド時に埋め込む |
 | `scripts` | PowerShellによる検査とビルドの入口 |
 | `docs/development-plan.md` | 実装順序、未決事項、受入確認 |
@@ -65,7 +68,7 @@ Goファイルを整形するときは `gofmt -w ./cmd ./internal` を使用し�
 
 CLIは単一の実行ファイルとしてビルドします。版番号は `internal/version/VERSION` の1か所だけで管理し、`--version` は埋め込んだ値を表示します。`build.ps1` が正本と実行ファイルの一致を確認します。開発用成果物のファイル名は固定です。公開・署名・配布の自動処理はありません。
 
-現在の版は `0.1.0` です。更新条件は [AGENTS.md](AGENTS.md#版管理)を参照してください。要件書の文書版とCLIの版番号は別に管理します。保存・JSON形式の初版は、実装時に要件どおり `schema_version: 1` とします。
+現在の版は `0.2.0` です。更新条件は [AGENTS.md](AGENTS.md#版管理)を参照してください。要件書の文書版とCLIの版番号は別に管理します。内部の保存形式は要件どおり `schema_version: 1` です。収集・保存方式と現在の制約は[入力と記録の実装](docs/input-and-record.md)にまとめています。
 
 ## 有効性の範囲
 
