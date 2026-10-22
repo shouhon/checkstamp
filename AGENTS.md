@@ -25,6 +25,7 @@ Windows上で `pwsh -NoProfile -File .\scripts\check.ps1` を実行する。検�
 ## 版管理
 
 - 配布単位は `checkstamp` の実行ファイル1つ。番号の正本は `internal/version/VERSION`。`internal/version` が埋め込み、`--version` と `scripts/build.ps1` が参照する。
+- ソースはGitHub、Windows/amd64向けの実行ファイルはGitHub Releasesで配布する。`scripts/package.ps1` で必須検査後に実行ファイル・MITライセンス入りのZIP、Scoop定義、SHA-256一覧を生成する。公開時は [リリース手順](docs/releasing.md)に従う。
 - `メジャー.マイナー.パッチ` で管理する。互換性の対象はCLIの引数、終了コード、出力・保存形式。公開前の `0.x` は機能追加・非互換変更でマイナー、修正でパッチを更新する。正式版では非互換変更でメジャー、互換性を保つ機能追加でマイナー、修正でパッチを更新する。
 - 動作・表示・出力・配布内容を変える一まとまりの作業の完了時に、一度だけ更新する。初回のセットアップで初期番号を設定する。コミットごとには増やさない。
 - 開発文書・テスト・検査手順だけの変更で実行ファイルの内容が変わらなければ据え置く。完了報告に理由を記す。
@@ -37,4 +38,4 @@ Windows上で `pwsh -NoProfile -File .\scripts\check.ps1` を実行する。検�
 - `dist/`、`.cache/`、`.checkstamp/` はGit管理対象外。実行ファイル、キャッシュ、検証記録をソースへ混ぜない。
 - 依存を追加する場合は取得元と導入理由を確認し、Goのコマンドで `go.mod`・`go.sum` を更新する。理由なく別の検査ツールや実行基盤を加えない。
 - 利用者のファイルや既存変更を戻さない。CLIの実行時に利用先の `.gitignore` やプロジェクト設定を変更しない。
-- ソースの管理先は `https://github.com/shouhon/checkstamp`。ライセンスは未選択。コミット・プッシュは利用者の明示依頼、または共通規則の条件付き認可に従う。
+- ソースの管理先は `https://github.com/shouhon/checkstamp`。ライセンスはMITとし、ルートの `LICENSE` を正本とする。コミット・プッシュは利用者の明示依頼、または共通規則の条件付き認可に従う。
