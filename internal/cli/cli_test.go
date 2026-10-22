@@ -46,6 +46,7 @@ func TestInvalidArgumentsDoNotDiscloseValues(t *testing.T) {
 		{name: "版表示の余分な引数", args: []string{"--version", privateValue}},
 		{name: "照合の実行IDなし", args: []string{"status"}},
 		{name: "照合の不正な実行ID", args: []string{"status", privateValue}},
+		{name: "実行の不正な引数", args: []string{"run", privateValue}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -54,29 +55,6 @@ func TestInvalidArgumentsDoNotDiscloseValues(t *testing.T) {
 			}
 			if stdout.Len() != 0 || stderr.Len() == 0 {
 				t.Fatal("引数エラーの診断は標準エラーだけに出す必要があります")
-			}
-			if strings.Contains(stderr.String(), privateValue) {
-				t.Fatal("引数の生値が診断に含まれています")
-			}
-		})
-	}
-}
-
-func TestUnavailableCommandsNeverReportSuccess(t *testing.T) {
-	const privateValue = "検証用の非公開引数"
-	for _, tc := range []struct {
-		name string
-		code int
-	}{
-		{name: "run", code: 125},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-			if code := cli.Run([]string{tc.name, privateValue}, &stdout, &stderr); code != tc.code {
-				t.Fatalf("終了コード = %d、期待値 = %d", code, tc.code)
-			}
-			if stdout.Len() != 0 || !strings.Contains(stderr.String(), "未実装") {
-				t.Fatal("未実装であることを標準エラーに示す必要があります")
 			}
 			if strings.Contains(stderr.String(), privateValue) {
 				t.Fatal("引数の生値が診断に含まれています")

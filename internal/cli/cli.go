@@ -10,16 +10,22 @@ import (
 
 const helpText = `checkstamp - 検証結果と指定した入力の状態を結び付けるCLI
 
-保存済み記録と現在の入力を status で照合できます。
-run は未実装のため、CLIから検証の実行や記録の保存は行いません。
+検証コマンドを run で実行・記録し、現在の入力を status で照合できます。
 
 使い方:
   checkstamp --help
   checkstamp --version
   checkstamp status <実行ID> [--json]
-
-実装予定の使い方:
   checkstamp run --label <名前> --input <対象> [--input <対象> ...] [--json] -- <コマンド> [引数...]
+
+run の終了コードと出力:
+  起動後は子プロセスの終了コードをそのまま返します。
+  起動前の失敗・起動不能は125、引数の誤りは64です。
+  通常は子の出力先を保ち、実行IDと判定を標準エラーへ出します。
+  --json は子の両出力を標準エラーへ流し、標準出力へ結果JSON1件を出します。
+  実行ファイル（.exe / .com）を直接起動します。スクリプトは明示的にpwshなどへ渡してください。
+  Ctrl+C / Ctrl+Breakで中断を通知し、2秒後または再度の中断で子孫を終了します。
+  起動後の記録失敗でも終了コードを変えません。記録の成立はstatusで確認してください。
 
 status の終了コード:
   0: valid（指定範囲で有効）
@@ -43,7 +49,7 @@ status の終了コード:
 仕様は docs/requirements.md、実装順は docs/development-plan.md を参照してください。
 `
 
-// Run は案内または記録の照合結果を出力して終了コードを返す。プロセスは終了しない。
+// Run は案内、検証コマンドの実行、記録の照合を行い終了コードを返す。自身は終了しない。
 func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		return invalidArguments(stderr)
@@ -61,8 +67,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		return writeOutput(stdout, stderr, "checkstamp "+version.String()+"\n")
 	case "run":
-		fmt.Fprintln(stderr, "checkstamp: run は未実装です。コマンドは起動していません。")
-		return 125
+		return runCommand(args[1:], stdout, stderr)
 	case "status":
 		return runStatus(args[1:], stdout, stderr)
 	default:
