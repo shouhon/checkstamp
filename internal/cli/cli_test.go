@@ -44,6 +44,8 @@ func TestInvalidArgumentsDoNotDiscloseValues(t *testing.T) {
 		{name: "未知の引数", args: []string{privateValue}},
 		{name: "ヘルプの余分な引数", args: []string{"--help", privateValue}},
 		{name: "版表示の余分な引数", args: []string{"--version", privateValue}},
+		{name: "照合の実行IDなし", args: []string{"status"}},
+		{name: "照合の不正な実行ID", args: []string{"status", privateValue}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -67,7 +69,6 @@ func TestUnavailableCommandsNeverReportSuccess(t *testing.T) {
 		code int
 	}{
 		{name: "run", code: 125},
-		{name: "status", code: 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer

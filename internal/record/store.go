@@ -135,7 +135,7 @@ func (s *Store) Start(label, executable string, args []string, before input.Snap
 	r := Record{
 		SchemaVersion: SchemaVersion, Tool: Tool{"checkstamp", version.String()}, Command: "run",
 		RunID: id, Label: label, Phase: "started", StartedAt: time.Now().UTC(),
-		Conditions: Conditions{s.directory, executable, HashArguments(args)}, Coverage: coverage(),
+		Conditions: Conditions{s.directory, executable, HashArguments(args)}, Coverage: CoverageLimits(),
 		Before: before, Changes: []input.Change{},
 	}
 	r.Status, r.Issues = outcome(r)

@@ -10,24 +10,31 @@ import (
 
 const helpText = `checkstamp - 検証結果と指定した入力の状態を結び付けるCLI
 
-現在は入力収集と記録保存の内部基盤まで実装しています。
---help と --version を利用できます。run と status の本体は未実装です。
-CLIから検証の実行や記録の保存は行いません。
+保存済み記録と現在の入力を status で照合できます。
+run は未実装のため、CLIから検証の実行や記録の保存は行いません。
 
 使い方:
   checkstamp --help
   checkstamp --version
+  checkstamp status <実行ID> [--json]
 
 実装予定の使い方:
   checkstamp run --label <名前> --input <対象> [--input <対象> ...] [--json] -- <コマンド> [引数...]
-  checkstamp status <実行ID> [--json]
+
+status の終了コード:
+  0: valid（指定範囲で有効）
+  1: stale / failed / unstable / interrupted
+  2: unknown（未完了・破損・未対応・読取不能など）
+  64: 引数の誤り
+  同じ作業ディレクトリから照合します。再実行や記録の書換えは行いません。
+  --json は結果JSONオブジェクト1件を標準出力へ出します。
 
 判定の有効範囲:
   指定した入力と記録できた実行条件だけを確認します。
   未指定のファイル、環境変数や外部サービスの同一性は保証しません。
   実行中に変更されて元に戻った内容の検出も保証しません。
 
-実装予定の記録先:
+記録先:
   作業ディレクトリの .checkstamp/runs/<実行ID>.json
   .git の管理領域と .checkstamp は入力の収集対象から除外します。
   Gitで管理する場合は、必要に応じて .gitignore に /.checkstamp/ を追加してください。
@@ -36,7 +43,7 @@ CLIから検証の実行や記録の保存は行いません。
 仕様は docs/requirements.md、実装順は docs/development-plan.md を参照してください。
 `
 
-// Run は案内を出力して終了コードを返す。呼び出し元のプロセスは終了しない。
+// Run は案内または記録の照合結果を出力して終了コードを返す。プロセスは終了しない。
 func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		return invalidArguments(stderr)
@@ -57,8 +64,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "checkstamp: run は未実装です。コマンドは起動していません。")
 		return 125
 	case "status":
-		fmt.Fprintln(stderr, "checkstamp: status は未実装です。記録の有効性は確認できません。")
-		return 2
+		return runStatus(args[1:], stdout, stderr)
 	default:
 		return invalidArguments(stderr)
 	}

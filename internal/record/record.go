@@ -85,7 +85,8 @@ func HashArguments(args []string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func coverage() Coverage {
+// CoverageLimits は保存を省略する情報と、この形式では確認できない条件を返す。
+func CoverageLimits() Coverage {
 	return Coverage{
 		Omitted:    []string{"引数の生値", "環境変数の値", "標準出力と標準エラーの本文", "入力ファイルの本文"},
 		Unverified: []string{"未指定のファイル", "環境変数と外部サービスの変化", "実行中に変更されて元に戻った内容"},
@@ -216,7 +217,7 @@ func validate(r Record) error {
 		}
 		return ErrCorrupt
 	}
-	if !validID(r.RunID) || r.Tool.Name != "checkstamp" || r.Tool.Version == "" || r.Command != "run" || strings.TrimSpace(r.Label) == "" || r.StartedAt.IsZero() || r.StartedAt.Location() != time.UTC || !filepath.IsAbs(r.Conditions.WorkingDirectory) || !filepath.IsAbs(r.Conditions.Executable) || !validHash(r.Conditions.ArgumentsSHA256) || !reflect.DeepEqual(r.Coverage, coverage()) || !validateSnapshot(r.Before, false) || r.Changes == nil || r.Issues == nil {
+	if !validID(r.RunID) || r.Tool.Name != "checkstamp" || r.Tool.Version == "" || r.Command != "run" || strings.TrimSpace(r.Label) == "" || r.StartedAt.IsZero() || r.StartedAt.Location() != time.UTC || !filepath.IsAbs(r.Conditions.WorkingDirectory) || !filepath.IsAbs(r.Conditions.Executable) || !validHash(r.Conditions.ArgumentsSHA256) || !reflect.DeepEqual(r.Coverage, CoverageLimits()) || !validateSnapshot(r.Before, false) || r.Changes == nil || r.Issues == nil {
 		return ErrCorrupt
 	}
 	switch r.Phase {
