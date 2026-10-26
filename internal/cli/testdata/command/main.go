@@ -56,19 +56,33 @@ func main() {
 			fmt.Fprint(os.Stdout, block)
 			fmt.Fprint(os.Stderr, block)
 		}
-	case "tree", "tree-ignore", "tree-exit":
+	case "tree", "tree-ignore", "tree-exit", "tree-exit-many":
 		signals := make(chan os.Signal, 2)
 		signal.Notify(signals, os.Interrupt)
 		self, _ := os.Executable()
-		child := exec.Command(self, "leaf")
-		// 意図的に出力ハンドルを継承させ、直接の子だけを待つ実装の停止を検出する。
-		child.Stdout, child.Stderr = os.Stdout, os.Stderr
-		must(child.Start())
-		waitFor("leaf-ready")
+		count := 1
+		if os.Args[1] == "tree-exit-many" {
+			count = 32
+		}
+		for index := range count {
+			inputFile, readyFile, pidFile := "src/変更", "leaf-ready", "grandchild.pid"
+			if count > 1 {
+				inputFile = filepath.Join("src", "保持-"+strconv.Itoa(index))
+				readyFile = "leaf-ready-" + strconv.Itoa(index)
+				if index > 0 {
+					pidFile = "grandchild-" + strconv.Itoa(index) + ".pid"
+				}
+			}
+			child := exec.Command(self, "leaf", inputFile, readyFile)
+			// 意図的に出力ハンドルを継承させ、直接の子だけを待つ実装の停止を検出する。
+			child.Stdout, child.Stderr = os.Stdout, os.Stderr
+			must(child.Start())
+			waitFor(readyFile)
+			must(os.WriteFile(pidFile, []byte(strconv.Itoa(child.Process.Pid)), 0600))
+		}
 		must(os.WriteFile("child.pid", []byte(strconv.Itoa(os.Getpid())), 0600))
-		must(os.WriteFile("grandchild.pid", []byte(strconv.Itoa(child.Process.Pid)), 0600))
 		must(os.WriteFile("ready", []byte("準備完了"), 0600))
-		if os.Args[1] == "tree-exit" {
+		if os.Args[1] == "tree-exit" || os.Args[1] == "tree-exit-many" {
 			return
 		}
 		for {
@@ -80,11 +94,11 @@ func main() {
 		}
 	case "leaf":
 		signal.Ignore(os.Interrupt)
-		name, _ := syscall.UTF16PtrFromString("src/変更")
+		name, _ := syscall.UTF16PtrFromString(os.Args[2])
 		handle, err := syscall.CreateFile(name, syscall.GENERIC_READ, 0, nil, syscall.OPEN_EXISTING, 0, 0)
 		must(err)
 		defer syscall.CloseHandle(handle)
-		must(os.WriteFile("leaf-ready", []byte("準備完了"), 0600))
+		must(os.WriteFile(os.Args[3], []byte("準備完了"), 0600))
 		for {
 			time.Sleep(time.Second)
 		}

@@ -128,7 +128,7 @@ Gitで管理するプロジェクトでは、必要に応じて `.gitignore` に
 
 ## 開発
 
-Windows 11・PowerShell 7・Go 1.27.0以上を使用します。確認済みのGo版は1.27.3です。外部のGoモジュールは使用していません。
+Windows 11・PowerShell 7・Go 1.27.0以上・Gitを使用します。確認済みのGo版は1.27.3です。外部のGoモジュールは使用していません。
 
 ```powershell
 git clone https://github.com/shouhon/checkstamp.git
@@ -137,7 +137,7 @@ pwsh -NoProfile -File .\scripts\check.ps1
 .\dist\checkstamp.exe --help
 ```
 
-`check.ps1` はモジュール整合性、整形、静的検査、テスト、ビルド、版表示、ヘルプ表示を確認し、失敗時に停止します。ソースを自動で整形し直すことはありません。ビルドだけなら次を実行します。
+`check.ps1` はモジュール整合性、整形、静的検査、テスト、自動リリースの判定・失敗処理、ビルド、版表示、ヘルプ表示を確認し、失敗時に停止します。自動リリースの試験は一時的なGitリポジトリとGitHub CLIの代替関数を使い、外部へ書き込みません。ソースを自動で整形し直すことはありません。ビルドだけなら次を実行します。
 
 ```powershell
 pwsh -NoProfile -File .\scripts\build.ps1
@@ -146,6 +146,8 @@ pwsh -NoProfile -File .\scripts\build.ps1
 成果物は `dist/checkstamp.exe` です。Goファイルの整形には `gofmt -w ./cmd ./internal` を使用します。終了コードの確認には、`go run` ではなくビルドした実行ファイルを使用してください。
 
 版番号の正本は `internal/version/VERSION`、保存・JSON形式は `schema_version: 1` です。配布物の作成方法は[リリース手順](docs/releasing.md)、実装と受入確認は[開発計画](docs/development-plan.md)、変更時の規則は[AGENTS.md](AGENTS.md)にまとめています。
+
+GitHub Actionsは `main` へのpushと `main` 宛てのプルリクエストで検査・配布準備を実行します。`main` へのpushで版番号の値が変わった場合は、検査成功後にタグとGitHub Releaseを作成し、ZIP・Scoop定義・ハッシュ一覧を公開します。公開済みの同じ版は上書きしません。失敗時の再実行は[自動公開の手順](docs/releasing.md#mainへのpushで自動公開する)を参照してください。
 
 ## 不具合報告・改善提案
 

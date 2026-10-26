@@ -46,6 +46,9 @@ try {
         throw "go test に失敗しました（終了コード: $LASTEXITCODE）。"
     }
 
+    Write-Host '自動リリースの判定と失敗時の処理を確認します。'
+    & (Join-Path $PSScriptRoot 'test-release.ps1')
+
     & (Join-Path $PSScriptRoot 'build.ps1')
     & './dist/checkstamp.exe' --help > $null
     if ($LASTEXITCODE -ne 0) {

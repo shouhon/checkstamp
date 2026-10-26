@@ -2,6 +2,7 @@
 package process
 
 import (
+	"encoding/binary"
 	"errors"
 	"io"
 	"os"
@@ -22,6 +23,7 @@ var (
 	setJob               = kernel32.NewProc("SetInformationJobObject")
 	terminateJob         = kernel32.NewProc("TerminateJobObject")
 	queryJob             = kernel32.NewProc("QueryInformationJobObject")
+	isProcessInJob       = kernel32.NewProc("IsProcessInJob")
 	initializeAttributes = kernel32.NewProc("InitializeProcThreadAttributeList")
 	updateAttribute      = kernel32.NewProc("UpdateProcThreadAttribute")
 	deleteAttributes     = kernel32.NewProc("DeleteProcThreadAttributeList")
@@ -42,6 +44,65 @@ type jobLimits struct {
 type startupInfoEx struct {
 	syscall.StartupInfo
 	Attributes *byte
+}
+
+type jobAccounting struct {
+	Times                                 [4]int64
+	PageFaults, Total, Active, Terminated uint32
+}
+
+// ジョブの一覧が変化した場合は、取りこぼした子孫の終了を確認済みにしない。
+func openJobProcesses(job uintptr, until time.Time) ([]syscall.Handle, bool) {
+	capacity := uint32(16)
+	for time.Now().Before(until) {
+		size := uint64(8) + uint64(capacity)*uint64(unsafe.Sizeof(uintptr(0)))
+		if size > uint64(^uint32(0)) || size > uint64(^uint(0)>>1) {
+			return nil, false
+		}
+		buffer := make([]byte, int(size))
+		ok, _, callErr := queryJob.Call(job, 3, uintptr(unsafe.Pointer(&buffer[0])), uintptr(len(buffer)), 0)
+		if ok == 0 && callErr != syscall.ERROR_MORE_DATA {
+			return nil, false
+		}
+		assigned := binary.LittleEndian.Uint32(buffer[:4])
+		count := binary.LittleEndian.Uint32(buffer[4:8])
+		if assigned > count || ok == 0 {
+			if assigned <= capacity {
+				return nil, false
+			}
+			capacity = assigned
+			continue
+		}
+		if count > capacity {
+			return nil, false
+		}
+		handles := make([]syscall.Handle, 0, count)
+		ids := unsafe.Slice((*uintptr)(unsafe.Pointer(&buffer[8])), count)
+		for _, pid := range ids {
+			if pid == 0 || uint64(pid) > uint64(^uint32(0)) {
+				return handles, false
+			}
+			handle, err := syscall.OpenProcess(syscall.SYNCHRONIZE|0x1000, false, uint32(pid)) // PROCESS_QUERY_LIMITED_INFORMATION
+			if err != nil {
+				return handles, false
+			}
+			var belongs int32
+			ok, _, _ := isProcessInJob.Call(uintptr(handle), job, uintptr(unsafe.Pointer(&belongs)))
+			if ok == 0 || belongs == 0 {
+				syscall.CloseHandle(handle)
+				return handles, false
+			}
+			handles = append(handles, handle)
+		}
+		return handles, true
+	}
+	return nil, false
+}
+
+func readJobAccounting(job uintptr) (jobAccounting, bool) {
+	var accounting jobAccounting
+	ok, _, _ := queryJob.Call(job, 1, uintptr(unsafe.Pointer(&accounting)), unsafe.Sizeof(accounting), 0)
+	return accounting, ok != 0
 }
 
 // Result は起動の有無、取得できた終了コードと中断の事実を返す。
@@ -244,6 +305,31 @@ func Execute(executable string, args []string, directory string, stdout, stderr 
 
 	var deadline <-chan time.Time
 	var timer *time.Timer
+	var cleanupHandles []syscall.Handle
+	var cleanupTotal uint32
+	cleanupStarted := false
+	defer func() {
+		for _, handle := range cleanupHandles {
+			syscall.CloseHandle(handle)
+		}
+	}()
+	terminateManaged := func() {
+		before, beforeOK := readJobAccounting(job)
+		if cleanupStarted && before.Total != cleanupTotal {
+			result.CleanupFailed = true
+		}
+		if !cleanupStarted {
+			cleanupTotal = before.Total
+			cleanupStarted = true
+		}
+		handles, opened := openJobProcesses(job, time.Now().Add(5*time.Second))
+		cleanupHandles = append(cleanupHandles, handles...)
+		ok, _, _ := terminateJob.Call(job, 125)
+		after, afterOK := readJobAccounting(job)
+		if !beforeOK || !opened || ok == 0 || !afterOK || cleanupTotal != after.Total {
+			result.CleanupFailed = true
+		}
+	}
 	defer func() {
 		if timer != nil {
 			timer.Stop()
@@ -253,7 +339,7 @@ func Execute(executable string, args []string, directory string, stdout, stderr 
 		select {
 		case <-signals:
 			if result.Interrupted {
-				terminateJob.Call(job, 125)
+				terminateManaged()
 			} else {
 				result.Interrupted = true
 				generateControl.Call(1, uintptr(pi.ProcessId)) // CTRL_BREAK_EVENT
@@ -261,7 +347,7 @@ func Execute(executable string, args []string, directory string, stdout, stderr 
 				deadline = timer.C
 			}
 		case <-deadline:
-			terminateJob.Call(job, 125)
+			terminateManaged()
 			deadline = nil
 		default:
 		}
@@ -275,18 +361,25 @@ func Execute(executable string, args []string, directory string, stdout, stderr 
 			break
 		}
 	}
-	// 終了要求は非同期なので、孫による入力の書込みも止まってから呼出し元へ戻る。
-	if ok, _, _ := terminateJob.Call(job, 125); ok == 0 {
-		result.CleanupFailed = true
-	} else {
-		until := time.Now().Add(5 * time.Second)
+	// 稼働数の減少だけでなく、終了要求前に保持した各プロセスの終了も待つ。
+	terminateManaged()
+	until := time.Now().Add(5 * time.Second)
+	for _, handle := range cleanupHandles {
+		remaining := time.Until(until).Milliseconds()
+		if remaining <= 0 {
+			result.CleanupFailed = true
+			break
+		}
+		state, err := syscall.WaitForSingleObject(handle, uint32(remaining))
+		if err != nil || state != syscall.WAIT_OBJECT_0 {
+			result.CleanupFailed = true
+			break
+		}
+	}
+	if !result.CleanupFailed {
 		for {
-			var accounting struct {
-				Times                                 [4]int64
-				PageFaults, Total, Active, Terminated uint32
-			}
-			ok, _, _ := queryJob.Call(job, 1, uintptr(unsafe.Pointer(&accounting)), unsafe.Sizeof(accounting), 0)
-			if ok == 0 || time.Now().After(until) {
+			accounting, ok := readJobAccounting(job)
+			if !ok || accounting.Total != cleanupTotal || time.Now().After(until) {
 				result.CleanupFailed = true
 				break
 			}

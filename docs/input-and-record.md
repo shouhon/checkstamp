@@ -59,7 +59,9 @@ Windowsの[プロセス作成属性](https://learn.microsoft.com/en-us/windows/w
 
 子は `CREATE_NEW_PROCESS_GROUP` で起動します。Ctrl+C / Ctrl+Breakを受けたら、そのプロセス群へ `CTRL_BREAK_EVENT` を送り、2秒の猶予を置きます。再度の中断または猶予の終了でジョブ全体を終了します。[コンソール通知](https://learn.microsoft.com/en-us/windows/console/generateconsolectrlevent)は同じコンソール内の対象だけへ届くため、コンソールがない・子が通知を無視する場合もジョブによる終了を行います。
 
-直接の子が終了した場合も、残った子孫を `TerminateJobObject` で終了します。[終了要求は非同期](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-terminateprocess)なので、ジョブの稼働プロセス数が0になったことを最大5秒確認してから入力を再収集します。終了確認が失敗すれば開始記録を維持し、結果は `unknown` とします。管理範囲は[ジョブに所属する子孫](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)です。WMIや別サービス経由で起動する外部プロセスは含みません。
+直接の子が終了した場合も、残った子孫を `TerminateJobObject` で終了します。[終了要求は非同期](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-terminateprocess)なので、要求前に[ジョブ内のプロセスを列挙](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_process_id_list)してハンドルを保持し、所属も確認します。再中断・猶予切れにも同じ処理を使います。要求後は全ハンドルの終了と稼働数0を共通の5秒期限で確認してから入力を再収集します。稼働数だけで先へ進み、終了途中の孫が保持する入力を読めなくなる問題を防ぎます。
+
+列挙後の新しいプロセスを取りこぼした可能性があれば、累計プロセス数の変化から終了確認の失敗とします。列挙・所属確認・待機の失敗も同様に扱い、開始記録を維持して結果を `unknown` とします。管理範囲は[ジョブに所属する子孫](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)です。WMIや別サービス経由で起動する外部プロセスは含みません。
 
 取得した終了コードは非0でもそのまま返します。再読取失敗は `after: null`、完了保存失敗は `record_write_failed` として `unknown` を返します。起動後の失敗や結果JSONの出力失敗でも取得済み終了コードを変更しません。終了コードを取得できなければ125を返し、開始記録を維持します。結果JSONは実行情報、日時、条件、一覧、差分、`issues`、中断の有無を含み、起動前などの取得不能な値は `null` です。引数エラーも `--json` が指定されていればJSON1件を返し、不正な引数の生値は返しません。
 
@@ -90,4 +92,4 @@ JSONオブジェクトには保存記録に対応する実行情報と、次の�
 
 `internal/cli/status_test.go` は実行ファイルをビルドし、`status` の判定、優先順位、終了コード、日本語・JSONの出力、入力全体の削除と共有違反による読取不能を確認します。照合前後で名前・種類・通常ファイルの本文と更新日時を比較し、入力・保存記録・別用途の保存先が変わらないことを確認します。記録の実行条件には、起動されると印を作る検証用プログラムを指定し、再実行がないことも検査します。実際の機密値は使いません。
 
-`internal/cli/run_test.go` はCLIと `testdata/command` の検証用プログラムをビルドします。引数の境界、環境、作業場所、終了コード0・1・2・64・125・4294967295、入力の追加・削除・変更、起動前の拒否、再読取・保存・結果出力の失敗、16MiBの出力、8件の並行実行を確認します。専用コンソールでCtrl+C・Ctrl+Break、通知無視と2秒後の終了、再度の中断、起動直後の中断、親の強制終了、通常終了時の孫の後片付けを確認します。孫が入力を共有不可で保持した状態から、CLIが戻った時点でプロセスが終了し、入力を読めることを検査します。保存記録と結果JSONも比較します。
+`internal/cli/run_test.go` はCLIと `testdata/command` の検証用プログラムをビルドします。引数の境界、環境、作業場所、終了コード0・1・2・64・125・4294967295、入力の追加・削除・変更、起動前の拒否、再読取・保存・結果出力の失敗、16MiBの出力、8件の並行実行を確認します。専用コンソールでCtrl+C・Ctrl+Break、通知無視と2秒後の終了、再度の中断、起動直後の中断、親の強制終了、通常終了時の孫の後片付けを確認します。孫1件と32件がそれぞれ入力を共有不可で保持した状態から、CLIが戻った時点でプロセスが終了し、入力を読めることを検査します。保存記録と結果JSONも比較します。

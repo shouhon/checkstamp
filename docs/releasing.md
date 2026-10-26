@@ -30,7 +30,32 @@ pwsh -NoProfile -File .\scripts\package.ps1
 
 公開前にZIPを別ディレクトリへ展開し、ライセンスの同梱、`--version` と `--help`、実際の `run` と `status` を確認する。Scoop定義と `checksums.txt` のハッシュが生成したファイルに一致することも確認する。配布物は署名していない。異なる環境・再ビルド間でのハッシュ一致は保証しない。
 
-## GitHub Releasesへ公開する
+## mainへのpushで自動公開する
+
+[GitHub Actionsのワークフロー](../.github/workflows/ci.yml)は、`main` へのpushと `main` 宛てのプルリクエストでWindows上の必須検査と配布準備を実行する。Goの版は `go.mod` から取得し、検査には既存の `scripts/package.ps1` を使用する。
+
+`main` へのpushで、push前後の `internal/version/VERSION` の値が変わった場合だけReleaseを公開する。複数コミットをまとめてpushした場合も、最後のコミットだけでなくpush全体の前後を比較する。改行だけの変更は版更新と扱わない。初回pushや版番号ファイルの新規追加では現在の版を公開対象とする。比較元を取得できない場合や版番号が不正な場合は停止する。
+
+1. 製品の変更と、規則に従った `internal/version/VERSION` の更新を同じpushに含める。
+2. `main` にpushする。プルリクエストの場合は `main` へのマージ後のpushが公開の契機となる。
+3. [Actions](https://github.com/shouhon/checkstamp/actions)の「検査とリリース」で、検査と公開の成功を確認する。
+4. [Releases](https://github.com/shouhon/checkstamp/releases)で、`v<版番号>` と3つの添付ファイルを確認する。
+
+公開ジョブは同じ実行で検査・生成した配布物を受け取り、検査したコミットにタグを固定する。Releaseを下書きで作成し、ZIP、`checkstamp.json`、`checksums.txt` の添付に成功してから公開する。説明はGitHubの変更履歴から自動生成する。最新版はGitHubの [`make_latest=legacy`](https://docs.github.com/en/rest/releases/releases#update-a-release)による作成日時・版番号の判定を使う。
+
+公開処理は[同時実行の待ち行列](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)で直列化し、進行中の公開を次のpushで取り消さない。`queue: max` により最大100件の待機を許容する。検査ジョブの権限は `contents: read`、公開ジョブだけは `contents: write` とする。認証にはGitHubが発行する `GITHUB_TOKEN` を使い、個人のアクセストークンや追加の秘密値は不要。GitHub側でActionsの実行とワークフローによる書き込みが許可されている必要がある。
+
+### 失敗と再実行
+
+- 検査・配布物の保存・取得に失敗した場合、公開へ進まない。
+- 添付に失敗したReleaseは下書きのまま残す。同じ実行を再実行すると、同じコミットのタグ・下書きを再利用して添付をやり直す。
+- 既に同じコミットで公開済みの版は変更しない。同じタグが別コミットを指す場合は停止する。公開済みの訂正には新しい版番号を使う。
+- 版番号を変えない次のpushでは、前の公開失敗を再試行しない。失敗したActionsの実行を再実行する。配布物の保存期間は7日間のため、期限後はすべてのジョブを再実行して配布物を作り直す。
+- 強制pushなどで比較元コミットを取得できなければ自動公開は停止する。履歴と版番号を確認し、必要なら以下の手動手順を使う。
+
+このワークフローによる `main` の版更新時のタグ作成・配布物の添付・Release公開は、自動公開の依頼に基づく運用範囲とする。ワークフロー導入だけでは版番号を上げず、既存Releaseを再公開しない。
+
+## GitHub Releasesへ手動で公開する
 
 タグの作成・プッシュ、Releaseへのアップロード・公開は、対象と操作が明示的に認可されたときに実行する。
 

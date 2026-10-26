@@ -318,7 +318,7 @@ func TestRunExecutable(t *testing.T) {
 		}
 	})
 	t.Run("中断と子孫と強制終了", func(t *testing.T) {
-		for _, mode := range []string{"notify", "ctrl-c", "ignore", "repeat", "early", "kill", "normal"} {
+		for _, mode := range []string{"notify", "ctrl-c", "ignore", "repeat", "early", "kill", "normal", "normal-many"} {
 			t.Run(mode, func(t *testing.T) {
 				dir := runDirectory(t)
 				childMode := "tree"
@@ -328,9 +328,18 @@ func TestRunExecutable(t *testing.T) {
 				if mode == "normal" {
 					childMode = "tree-exit"
 				}
+				if mode == "normal-many" {
+					childMode = "tree-exit-many"
+					for index := range 32 {
+						name := filepath.Join(dir, "src", "保持-"+strconv.Itoa(index))
+						if err := os.WriteFile(name, []byte("実行前"), 0600); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
 				args := append(base(true), childMode)
 				program := executable
-				if mode != "normal" {
+				if mode != "normal" && mode != "normal-many" {
 					args = append([]string{"console", "wrapper.pid", mode, executable}, args...)
 					program = helper
 				}
@@ -350,9 +359,9 @@ func TestRunExecutable(t *testing.T) {
 					}
 				} else {
 					result := decodeRun(t, stdout)
-					if mode == "normal" {
+					if mode == "normal" || mode == "normal-many" {
 						if code != 0 || result.Status != "valid" {
-							t.Fatal("通常終了が失敗しました")
+							t.Fatalf("通常終了が失敗しました: 終了コード=%d、状態=%s、問題=%v", code, result.Status, result.Issues)
 						}
 					} else if mode == "early" {
 						if result.Status == "valid" || !result.Interrupted {
@@ -374,7 +383,13 @@ func TestRunExecutable(t *testing.T) {
 						assertRunRecord(t, dir, result)
 					}
 				}
-				for _, name := range []string{"child.pid", "grandchild.pid"} {
+				pidFiles := []string{"child.pid", "grandchild.pid"}
+				if mode == "normal-many" {
+					for index := 1; index < 32; index++ {
+						pidFiles = append(pidFiles, "grandchild-"+strconv.Itoa(index)+".pid")
+					}
+				}
+				for _, name := range pidFiles {
 					data, err := os.ReadFile(filepath.Join(dir, name))
 					if mode == "early" && os.IsNotExist(err) {
 						continue

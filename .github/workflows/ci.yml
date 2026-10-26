@@ -1,0 +1,93 @@
+name: 検査とリリース
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  check:
+    name: Windowsで検査・配布準備
+    runs-on: windows-latest
+    timeout-minutes: 20
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: 対象コミットを取得
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Goを準備
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: push前後の版番号を比較
+        if: github.event_name == 'push'
+        id: version
+        env:
+          BEFORE_COMMIT: ${{ github.event.before }}
+          TARGET_COMMIT: ${{ github.sha }}
+        run: |
+          $result = & ./scripts/release-version.ps1 -BeforeCommit $env:BEFORE_COMMIT -Commit $env:TARGET_COMMIT
+          "changed=$($result.Changed.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "version=$($result.Version)" >> $env:GITHUB_OUTPUT
+
+      - name: 必須検査と配布物の作成
+        run: ./scripts/package.ps1
+
+      - name: 公開する配布物を保存
+        if: github.event_name == 'push' && steps.version.outputs.changed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ steps.version.outputs.version }}
+          path: dist/release/${{ steps.version.outputs.version }}/
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+  release:
+    name: GitHub Releasesへ公開
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.check.outputs.changed == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: checkstamp-release
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - name: 検査したコミットを取得
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: 検査済みの配布物を取得
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-${{ needs.check.outputs.version }}
+          path: dist/release/${{ needs.check.outputs.version }}
+
+      - name: タグとReleaseを公開
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.check.outputs.version }}
+          TARGET_COMMIT: ${{ github.sha }}
+        run: |
+          ./scripts/publish-release.ps1 -Repository $env:GITHUB_REPOSITORY -Commit $env:TARGET_COMMIT -Version $env:RELEASE_VERSION -AssetDirectory "dist/release/$env:RELEASE_VERSION"
