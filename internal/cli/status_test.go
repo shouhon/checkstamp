@@ -283,6 +283,25 @@ func TestStatusExecutable(t *testing.T) {
 				if tc.lock && result.Current != nil {
 					t.Fatal("読取不能時に部分的な一覧を返しています")
 				}
+				summaryCode, summaryJSON, _ := invokeStatus(t, executable, dir, "status", run.ID(), "--json-summary")
+				summary := decodeSummary(t, summaryJSON)
+				if summaryCode != code || summary.Status != result.Status || summary.RunID != result.RunID || !reflect.DeepEqual(summary.ChildExitCode, result.ChildExitCode) || !reflect.DeepEqual(summary.Issues, result.Issues) {
+					t.Fatal("要約から照合の判定・終了コード・問題が失われています")
+				}
+				if result.After != nil {
+					if summary.ChangeCount == nil || *summary.ChangeCount != len(result.Changes) {
+						t.Fatal("要約の実行前後の変更件数が一致しません")
+					}
+				} else if summary.ChangeCount != nil {
+					t.Fatal("未確認の実行前後の変更件数はnullが必要です")
+				}
+				if result.Current != nil {
+					if summary.CurrentChangeCount == nil || *summary.CurrentChangeCount != len(result.CurrentChanges) {
+						t.Fatal("要約の現在の変更件数が一致しません")
+					}
+				} else if summary.CurrentChangeCount != nil {
+					t.Fatal("読取不能な現在の変更件数はnullが必要です")
+				}
 				code, text, _ := invokeStatus(t, executable, dir, "status", run.ID())
 				if code != wantCode || !strings.Contains(text, "判定: "+tc.status) || !strings.Contains(text, "未確認の条件:") {
 					t.Fatal("日本語表示の判定または終了コードがJSONと一致しません")
@@ -345,6 +364,11 @@ func TestStatusExecutable(t *testing.T) {
 				if kind != "未完了" && (result.Label != nil || result.Conditions != nil || result.ChildExitCode != nil || result.StartedAt != nil || result.Before != nil || result.RecordStatus != nil) {
 					t.Fatal("成立しなかった記録から実行情報を推定しています")
 				}
+				code, summaryJSON, _ := invokeStatus(t, executable, dir, "status", run.ID(), "--json-summary")
+				summary := decodeSummary(t, summaryJSON)
+				if code != 2 || summary.Status != "unknown" || summary.ChildExitCode != nil || summary.ChangeCount != nil || (kind != "未完了" && summary.CurrentChangeCount != nil) || !reflect.DeepEqual(summary.Issues, result.Issues) {
+					t.Fatal("不成立の記録の要約で未確認の値または問題が失われています")
+				}
 				if !reflect.DeepEqual(original, statusTree(t, dir)) {
 					t.Fatal("失敗時にファイルを作成・変更しています")
 				}
@@ -385,7 +409,7 @@ func TestStatusOutputFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(dir)
-	for _, args := range [][]string{{"status", run.ID()}, {"status", run.ID(), "--json"}} {
+	for _, args := range [][]string{{"status", run.ID()}, {"status", run.ID(), "--json"}, {"status", run.ID(), "--json-summary"}} {
 		var stderr bytes.Buffer
 		if code := cli.Run(args, failingWriter{}, &stderr); code != 2 {
 			t.Fatalf("statusの出力失敗時の終了コード=%d、期待値=2", code)

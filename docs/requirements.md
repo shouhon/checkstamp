@@ -1,6 +1,6 @@
 # checkstamp 要件定義書
 
-- 文書版: 1.0
+- 文書版: 1.1
 - 状態: 初版・実装済み（現在のCLI版と確認範囲は[開発計画](development-plan.md)を参照）
 - 目的: 検証コマンドの結果を、実行時に指定したファイルの状態と結び付けて保存する。
 
@@ -22,8 +22,8 @@
 
 | コマンド | 要件 |
 |---|---|
-| checkstamp run --label <名前> --input <対象> [--input <対象> ...] [--json] -- <コマンド> [引数...] | 入力を記録し、コマンドを実行して結果を保存する。 |
-| checkstamp status <実行ID> [--json] | 保存済みの結果と現在の入力を照合する。検証コマンドは再実行しない。 |
+| checkstamp run --label <名前> --input <対象> [--input <対象> ...] [--json または --json-summary] -- <コマンド> [引数...] | 入力を記録し、コマンドを実行して結果を保存する。 |
+| checkstamp status <実行ID> [--json または --json-summary] | 保存済みの結果と現在の入力を照合する。検証コマンドは再実行しない。 |
 | checkstamp --help / --version | 日本語の使い方、有効性の範囲、版番号を表示する。 |
 
 使用例は、checkstamp run --label unit --input src --input tests --input package.json --input bun.lock -- bun test とする。この例の入力が実際のプロジェクトに存在することは実行前に確認する。
@@ -63,9 +63,11 @@
 
 入力の削除は内容の変化として扱い、存在や内容を調べる権限がない場合の unknown と区別する。
 
-通常の run では子プロセスの標準出力・標準エラーを元の出力先へ流し、ツール自身の実行IDや診断は標準エラーに出す。run --json では子プロセスの両出力を標準エラーへ流し、標準出力を結果JSONオブジェクト1件に保つ。このモードでは子プロセスの2つの出力元の区別と相互の順序は保証しない。
+通常の run では子プロセスの標準出力・標準エラーを元の出力先へ流し、ツール自身の実行IDや診断は標準エラーに出す。run --json と run --json-summary では子プロセスの両出力を標準エラーへ流し、標準出力を結果JSONオブジェクト1件に保つ。これらのモードでは子プロセスの2つの出力元の区別と相互の順序は保証しない。
 
-JSONには schema_version、tool、command、run_id、label、status、child_exit_code、実行日時、記録した実行条件、coverage、入力の差分、issues を含める。issues は機械判定用の code と日本語の説明を持つ。保存先の記録と結果JSONで判定を食い違わせない。
+--json の詳細出力には schema_version、tool、command、run_id、label、status、child_exit_code、実行日時、記録した実行条件、coverage、入力の差分、issues を含める。issues は機械判定用の code と日本語の説明を持つ。保存先の記録と結果JSONで判定を食い違わせない。
+
+--json-summary は schema_version、command、run_id、status、child_exit_code、change_count、current_change_count、issues のみを返し、入力一覧や差分の明細を出さない。実行前後の変更件数を change_count、最後の記録から現在の変更件数を current_change_count とし、変更されたファイル・ディレクトリのパスを各1件として数える。未確認の件数と未取得の終了コードは0と推定せず null とする。run の current_change_count は常に null とする。実行前後の詳細な一覧と差分は保存記録に残し、現在の一覧と差分は status --json で取得する。--json と --json-summary の併用・重複は引数エラーとする。判定・終了コード・issues の意味はどちらのJSONモードでも維持する。
 
 ## 6. 終了コードと中断
 
@@ -92,7 +94,7 @@ run と status は終了コードの意味を分ける。
 4. 実行中に生じ、終了時にも残った入力の追加・削除・変更は unstable とする。
 5. 読取失敗、未対応の入力、記録破損、未知の保存形式、未完了の記録を成功扱いにしない。
 6. 中断と同時実行を扱い、実行IDや保存ファイルが衝突しない。
-7. 通常表示とJSON表示で標準出力の契約を守り、出力量に比例して無制限にメモリーへ蓄積しない。
+7. 通常表示と両JSONモードで標準出力の契約を守り、出力量に比例して無制限にメモリーへ蓄積しない。要約は入力や差分の件数に比例して大きくならず、詳細記録と判定・終了コード・問題が一致する。
 8. 機密値を含む引数や出力を、ツールの記録や独自のエラーメッセージへ転記しない。
 9. status は子プロセスや検査を再実行せず、対象ファイルを変更しない。
 

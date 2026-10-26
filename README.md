@@ -103,12 +103,22 @@ checkstamp status $runId
 
 ### JSONで受け取る
 
-`--json` を付けると、標準出力へ結果のJSONオブジェクトを1件出します。`run` の子プロセスの標準出力・標準エラーは、どちらも標準エラーへ流します。
+入力が多い場合は `--json-summary` を使うと、入力一覧や差分の明細を含めない短いJSONオブジェクトを1件受け取れます。`run` の子プロセスの標準出力・標準エラーは、どちらも標準エラーへ流します。
 
 ```powershell
-$result = checkstamp run --label unit --input cmd --input internal --input go.mod --json -- go test ./... | ConvertFrom-Json
-checkstamp status $result.run_id --json
+$result = checkstamp run --label unit --input cmd --input internal --input go.mod --json-summary -- go test ./... | ConvertFrom-Json
+checkstamp status $result.run_id --json-summary
 ```
+
+照合時の要約は次の形式です。
+
+```json
+{"schema_version":1,"command":"status","run_id":"0123456789abcdef0123456789abcdef","status":"valid","child_exit_code":0,"change_count":0,"current_change_count":0,"issues":[]}
+```
+
+`change_count` は実行前後、`current_change_count` は最後の記録から現在までの変更件数です。変更されたパスをファイル・ディレクトリとも各1件として数え、未確認の件数と取得できない終了コードは `null` です。`run` は現在との再照合を行わないため、`current_change_count` は常に `null` です。問題は `issues` の識別子と日本語の説明で確認できます。
+
+実行前後の詳しい入力一覧と差分は、要約モードでも `.checkstamp/runs/<実行ID>.json` に保存します。現在の一覧や差分の明細も必要な場合は、従来の `checkstamp status $result.run_id --json` を使ってください。`run --json` の詳細出力も維持しています。`--json` と `--json-summary` は併用できません。
 
 ### 中断と記録の管理
 

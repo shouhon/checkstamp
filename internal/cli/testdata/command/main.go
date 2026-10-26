@@ -22,7 +22,7 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "contract":
-		want := []string{"", "空白 日本語", `引用"符`, `末尾\`, `空白 末尾\`, "--json", "--", marker}
+		want := []string{"", "空白 日本語", `引用"符`, `末尾\`, `空白 末尾\`, "--json", "--json-summary", "--", marker}
 		dir, _ := os.Getwd()
 		if !reflect.DeepEqual(os.Args[2:], want) || dir != os.Getenv("CHECKSTAMP_TEST_DIRECTORY") || os.Getenv("CHECKSTAMP_TEST_VALUE") != marker {
 			os.Exit(91)

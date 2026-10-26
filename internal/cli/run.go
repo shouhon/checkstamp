@@ -21,6 +21,7 @@ type runOptions struct {
 	label           string
 	inputs, command []string
 	json            bool
+	jsonSummary     bool
 }
 
 type runResult struct {
@@ -56,8 +57,11 @@ func parseRun(args []string) (options runOptions, valid bool) {
 		flags, options.command = args[:boundary], args[boundary+1:]
 	}
 	for _, arg := range flags {
-		if arg == "--json" {
+		if arg == "--json" || arg == "--json-summary" {
 			options.json = true
+		}
+		if arg == "--json-summary" {
+			options.jsonSummary = true
 		}
 	}
 	seenLabel, seenJSON := false, false
@@ -76,7 +80,7 @@ func parseRun(args []string) (options runOptions, valid bool) {
 			} else {
 				options.inputs = append(options.inputs, flags[i])
 			}
-		case "--json":
+		case "--json", "--json-summary":
 			if seenJSON {
 				return options, false
 			}
@@ -105,7 +109,15 @@ func runCommand(args []string, stdout, stderr io.Writer) int {
 	}
 	finish := func(code int) int {
 		if options.json {
-			if err := json.NewEncoder(stdout).Encode(result); err != nil {
+			var output any = result
+			if options.jsonSummary {
+				output = summaryResult{
+					SchemaVersion: result.SchemaVersion, Command: result.Command, RunID: result.RunID,
+					Status: result.Status, ChildExitCode: result.ChildExitCode,
+					ChangeCount: changeCount(result.Changes, result.After != nil), Issues: result.Issues,
+				}
+			}
+			if err := json.NewEncoder(stdout).Encode(output); err != nil {
 				fmt.Fprintln(stderr, "checkstamp: 標準出力へ書き込めませんでした。")
 			}
 		} else {

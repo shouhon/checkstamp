@@ -44,18 +44,21 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		Command: "status", Status: "unknown", Coverage: record.CoverageLimits(),
 		Changes: []input.Change{}, CurrentChanges: []input.Change{}, Issues: []record.Issue{},
 	}
-	jsonOutput := false
+	jsonOutput, jsonSummary := false, false
 	for _, arg := range args {
-		if arg == "--json" {
+		if arg == "--json" || arg == "--json-summary" {
 			jsonOutput = true
 		}
+		if arg == "--json-summary" {
+			jsonSummary = true
+		}
 	}
-	if len(args) < 1 || len(args) > 2 || len(args) == 2 && args[1] != "--json" || !validRunID(args[0]) {
+	if len(args) < 1 || len(args) > 2 || len(args) == 2 && args[1] != "--json" && args[1] != "--json-summary" || !validRunID(args[0]) {
 		result.Status = "invalid_arguments"
 		result.Issues = append(result.Issues, record.Issue{Code: "invalid_arguments", Description: "引数が正しくありません。使い方は --help で確認してください。"})
 		invalidArguments(stderr)
 		if jsonOutput {
-			writeStatusJSON(stdout, stderr, result)
+			writeStatusJSON(stdout, stderr, result, jsonSummary)
 		}
 		return 64
 	}
@@ -75,7 +78,7 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if jsonOutput {
-		if !writeStatusJSON(stdout, stderr, result) {
+		if !writeStatusJSON(stdout, stderr, result, jsonSummary) {
 			return 2
 		}
 	} else if !writeStatusText(stdout, stderr, result) {
@@ -146,8 +149,17 @@ func checkStatus(result *statusResult) {
 	}
 }
 
-func writeStatusJSON(stdout, stderr io.Writer, result statusResult) bool {
-	if err := json.NewEncoder(stdout).Encode(result); err != nil {
+func writeStatusJSON(stdout, stderr io.Writer, result statusResult, summary bool) bool {
+	var output any = result
+	if summary {
+		output = summaryResult{
+			SchemaVersion: result.SchemaVersion, Command: result.Command, RunID: result.RunID,
+			Status: result.Status, ChildExitCode: result.ChildExitCode,
+			ChangeCount:        changeCount(result.Changes, result.After != nil),
+			CurrentChangeCount: changeCount(result.CurrentChanges, result.Current != nil), Issues: result.Issues,
+		}
+	}
+	if err := json.NewEncoder(stdout).Encode(output); err != nil {
 		fmt.Fprintln(stderr, "checkstamp: 標準出力へ書き込めませんでした。")
 		return false
 	}

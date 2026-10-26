@@ -141,7 +141,7 @@ func TestRunExecutable(t *testing.T) {
 			dir := runDirectory(t)
 			t.Setenv("CHECKSTAMP_TEST_DIRECTORY", dir)
 			t.Setenv("CHECKSTAMP_TEST_VALUE", runMarker)
-			childArgs := []string{"contract", "", "空白 日本語", `引用"符`, `末尾\`, `空白 末尾\`, "--json", "--", runMarker}
+			childArgs := []string{"contract", "", "空白 日本語", `引用"符`, `末尾\`, `空白 末尾\`, "--json", "--json-summary", "--", runMarker}
 			code, stdout, stderr := invokeRun(t, executable, dir, append(base(jsonOutput), childArgs...)...)
 			if code != 0 || !strings.Contains(stderr, runMarker+"-標準エラー") {
 				t.Fatalf("引数または出力の契約が成立しません: 終了コード=%d、標準エラー=%s", code, stderr)
@@ -267,10 +267,92 @@ func TestRunExecutable(t *testing.T) {
 	t.Run("結果出力失敗でも終了コードを保持", func(t *testing.T) {
 		dir := runDirectory(t)
 		t.Chdir(dir)
-		var stderr bytes.Buffer
-		code := cli.Run(append(base(true), "exit", "64"), failingWriter{}, &stderr)
-		if code != 64 || !strings.Contains(stderr.String(), "書き込めません") || strings.Contains(stderr.String(), "検証用の非公開エラー") {
-			t.Fatal("結果出力の失敗で子の終了コードが変わったか、エラー本文が漏れています")
+		for _, flag := range []string{"--json", "--json-summary"} {
+			args := base(true)
+			args[5] = flag
+			var stderr bytes.Buffer
+			code := cli.Run(append(args, "exit", "64"), failingWriter{}, &stderr)
+			if code != 64 || !strings.Contains(stderr.String(), "書き込めません") || strings.Contains(stderr.String(), "検証用の非公開エラー") {
+				t.Fatal("結果出力の失敗で子の終了コードが変わったか、エラー本文が漏れています")
+			}
+		}
+	})
+	t.Run("1832ファイルでも短い要約と詳細記録を保持", func(t *testing.T) {
+		dir := runDirectory(t)
+		for i := 2; i < 1832; i++ {
+			writeStatusInput(t, dir, "入力-"+strconv.Itoa(i), runMarker)
+		}
+		t.Setenv("CHECKSTAMP_TEST_DIRECTORY", dir)
+		t.Setenv("CHECKSTAMP_TEST_VALUE", runMarker)
+		childArgs := []string{"contract", "", "空白 日本語", `引用"符`, `末尾\`, `空白 末尾\`, "--json", "--json-summary", "--", runMarker}
+		args := []string{"run", "--label", "要約の試験", "--input", "src", "--json-summary", "--", helper}
+		code, stdout, stderr := invokeRun(t, executable, dir, append(args, childArgs...)...)
+		result := decodeSummary(t, stdout)
+		if code != 0 || result.Status != "valid" || result.ChildExitCode == nil || *result.ChildExitCode != 0 || result.ChangeCount == nil || *result.ChangeCount != 0 || result.CurrentChangeCount != nil || len(result.Issues) != 0 || len(stdout) > 1024 {
+			t.Fatal("大量の入力に対する実行の要約が短くないか、判定と件数が一致しません")
+		}
+		if !strings.Contains(stderr, runMarker+"-標準出力") || !strings.Contains(stderr, runMarker+"-標準エラー") {
+			t.Fatal("要約時の子の両出力が標準エラーに流れていません")
+		}
+		name := filepath.Join(dir, ".checkstamp", "runs", result.RunID+".json")
+		recorded, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var saved record.Record
+		if err := json.Unmarshal(recorded, &saved); err != nil || saved.After == nil || len(saved.Before.Entries) != 1833 || len(saved.After.Entries) != 1833 || bytes.Contains(recorded, []byte(runMarker)) {
+			t.Fatal("要約時にも保存すべき詳細な入力一覧が失われています")
+		}
+		fullCode, fullJSON, _ := invokeRun(t, executable, dir, "status", result.RunID, "--json")
+		full := decodeStatus(t, fullJSON)
+		if fullCode != 0 || full.Current == nil || len(full.Current.Entries) != 1833 || len(fullJSON) < 200*1024 {
+			t.Fatal("既存のJSON出力から詳細な入力一覧が失われています")
+		}
+		code, stdout, _ = invokeRun(t, executable, dir, "status", result.RunID, "--json-summary")
+		current := decodeSummary(t, stdout)
+		if code != 0 || current.Status != "valid" || current.ChangeCount == nil || *current.ChangeCount != 0 || current.CurrentChangeCount == nil || *current.CurrentChangeCount != 0 || len(stdout) > 1024 {
+			t.Fatal("大量の入力に対する照合の要約が短くないか、件数が一致しません")
+		}
+		t.Logf("1832ファイル: 詳細JSON %dバイト、照合要約 %dバイト", len(fullJSON), len(stdout))
+		if err := os.RemoveAll(filepath.Join(dir, "src")); err != nil {
+			t.Fatal(err)
+		}
+		code, stdout, _ = invokeRun(t, executable, dir, "status", result.RunID, "--json-summary")
+		current = decodeSummary(t, stdout)
+		if code != 1 || current.Status != "stale" || current.ChangeCount == nil || *current.ChangeCount != 0 || current.CurrentChangeCount == nil || *current.CurrentChangeCount != 1833 || len(stdout) > 1024 || len(current.Issues) != 1 || current.Issues[0].Code != "current_input_changed" {
+			t.Fatal("大量の差分が明細の出力へ戻っているか、件数と問題が失われています")
+		}
+		afterStatus, err := os.ReadFile(name)
+		if err != nil || !bytes.Equal(recorded, afterStatus) {
+			t.Fatal("要約による照合が詳細記録を書き換えています")
+		}
+	})
+	t.Run("要約でも実行中の差分と終了コードを保持", func(t *testing.T) {
+		for _, exit := range []int{0, 64} {
+			dir := runDirectory(t)
+			args := []string{"run", "--label", "要約の試験", "--input", "src", "--json-summary", "--", helper, "change", strconv.Itoa(exit)}
+			code, stdout, _ := invokeRun(t, executable, dir, args...)
+			result := decodeSummary(t, stdout)
+			want := "unstable"
+			if exit != 0 {
+				want = "failed"
+			}
+			if code != exit || result.Status != want || result.ChildExitCode == nil || *result.ChildExitCode != exit || result.ChangeCount == nil || *result.ChangeCount != 3 || result.CurrentChangeCount != nil {
+				t.Fatal("要約から実行中の差分または子の終了コードが失われています")
+			}
+			_, fullJSON, _ := invokeRun(t, executable, dir, "status", result.RunID, "--json")
+			full := decodeStatus(t, fullJSON)
+			if full.Status != result.Status || len(full.Changes) != 3 || !reflect.DeepEqual(full.Issues, result.Issues) {
+				t.Fatal("要約と詳細記録の判定・問題が一致しません")
+			}
+		}
+	})
+	t.Run("要約の起動前失敗では未確認の件数をnullにする", func(t *testing.T) {
+		dir := runDirectory(t)
+		code, stdout, _ := invokeRun(t, executable, dir, "run", "--label", "要約の試験", "--input", runMarker, "--json-summary", "--", helper, "exit", "0")
+		result := decodeSummary(t, stdout)
+		if code != 125 || result.Status != "unknown" || result.ChildExitCode != nil || result.ChangeCount != nil || result.CurrentChangeCount != nil || len(result.Issues) != 1 || result.Issues[0].Code != "input_collection_failed" {
+			t.Fatal("起動前失敗の要約から未確認の値または問題が失われています")
 		}
 	})
 	t.Run("大量出力を流す", func(t *testing.T) {

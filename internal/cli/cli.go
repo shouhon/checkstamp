@@ -15,14 +15,15 @@ const helpText = `checkstamp - 検証結果と指定した入力の状態を結�
 使い方:
   checkstamp --help
   checkstamp --version
-  checkstamp status <実行ID> [--json]
-  checkstamp run --label <名前> --input <対象> [--input <対象> ...] [--json] -- <コマンド> [引数...]
+  checkstamp status <実行ID> [--json | --json-summary]
+  checkstamp run --label <名前> --input <対象> [--input <対象> ...] [--json | --json-summary] -- <コマンド> [引数...]
 
 run の終了コードと出力:
   起動後は子プロセスの終了コードをそのまま返します。
   起動前の失敗・起動不能は125、引数の誤りは64です。
   通常は子の出力先を保ち、実行IDと判定を標準エラーへ出します。
   --json は子の両出力を標準エラーへ流し、標準出力へ結果JSON1件を出します。
+  --json-summary は同じ出力先で、入力一覧や差分の明細を含めない短いJSON1件を出します。
   実行ファイル（.exe / .com）を直接起動します。スクリプトは明示的にpwshなどへ渡してください。
   Ctrl+C / Ctrl+Breakで中断を通知し、2秒後または再度の中断で子孫を終了します。
   起動後の記録失敗でも終了コードを変えません。記録の成立はstatusで確認してください。
@@ -34,6 +35,9 @@ status の終了コード:
   64: 引数の誤り
   同じ作業ディレクトリから照合します。再実行や記録の書換えは行いません。
   --json は結果JSONオブジェクト1件を標準出力へ出します。
+  --json-summary は実行ID、判定、子の終了コード、変更件数、問題を短いJSONで返します。
+  変更件数は実行前後と現在を分け、未確認の件数や終了コードはnullです。
+  --json と --json-summary は併用できません。runはどちらでも詳細な記録を保存します。
 
 判定の有効範囲:
   指定した入力と記録できた実行条件だけを確認します。
