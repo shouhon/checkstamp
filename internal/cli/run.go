@@ -149,10 +149,11 @@ func runCommand(args []string, stdout, stderr io.Writer) int {
 	}
 	before, err := input.Collect(directory, options.inputs)
 	if err != nil {
+		description := inputFailureDescription(err)
 		if errors.Is(err, input.ErrArguments) || errors.Is(err, input.ErrExcluded) {
-			return fail(64, "invalid_arguments", "入力は管理領域を除く、作業ディレクトリ内の相対パスで指定してください。")
+			return fail(64, "invalid_arguments", description)
 		}
-		return fail(125, "input_collection_failed", "入力を収集できませんでした。存在する通常ファイルまたはディレクトリを作業範囲内で指定してください。リンクや管理領域は指定できません。")
+		return fail(125, "input_collection_failed", description)
 	}
 	result.Before = &before
 	executable, err := process.Resolve(options.command[0])
@@ -223,6 +224,30 @@ func runCommand(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "checkstamp: 子プロセスの出力を転送できませんでした。")
 	}
 	return finish(*child.ExitCode)
+}
+
+func inputFailureDescription(err error) string {
+	subject := "入力"
+	var failure *input.Error
+	if errors.As(err, &failure) {
+		subject = fmt.Sprintf("%d番目の --input ", failure.Index)
+	}
+	var reason string
+	switch {
+	case errors.Is(err, input.ErrArguments):
+		reason = "は作業ディレクトリ内の相対パスで指定してください。"
+	case errors.Is(err, input.ErrExcluded):
+		reason = "に管理領域を直接指定することはできません。"
+	case errors.Is(err, input.ErrMissing):
+		reason = "の対象が存在しません。"
+	case errors.Is(err, input.ErrUnsupported):
+		reason = "に未対応の入力があります。リンク・再解析ポイント・特殊ファイル、または大文字小文字だけが異なる名前には対応していません。"
+	case errors.Is(err, input.ErrRead):
+		reason = "の種類または内容を読み取れませんでした。"
+	default:
+		reason = "を収集できませんでした。"
+	}
+	return subject + reason + "子プロセスは起動していません。"
 }
 
 func resultFromRecord(saved record.Record) runResult {

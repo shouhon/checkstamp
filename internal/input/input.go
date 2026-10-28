@@ -22,6 +22,27 @@ var (
 	ErrUnsupported = workspace.ErrUnsupported
 )
 
+// Error は失敗した入力の指定順（1始まり）と、生値を含まない原因区分を保持する。
+type Error struct {
+	Index int
+	cause error
+}
+
+// Error は入力名やOSエラーを含まない原因の説明を返す。
+func (e *Error) Error() string {
+	return e.cause.Error()
+}
+
+// Unwrap は errors.Is で判定できる安全な原因区分を返す。
+func (e *Error) Unwrap() error {
+	return e.cause
+}
+
+type namedInput struct {
+	name  string
+	index int
+}
+
 // Entry は通常ファイルまたはディレクトリ1件の状態。ディレクトリのハッシュは空とする。
 type Entry struct {
 	Path   string `json:"path"`
@@ -64,21 +85,22 @@ func collect(directory string, inputs []string, allowMissing bool) (Snapshot, er
 		return Snapshot{}, ErrRead
 	}
 	defer root.Close()
-	result := Snapshot{Inputs: names, Entries: []Entry{}, Excluded: []string{}}
+	result := Snapshot{Inputs: make([]string, 0, len(names)), Entries: []Entry{}, Excluded: []string{}}
 	entries := make(map[string]Entry)
 	excluded := make(map[string]string)
-	for _, name := range names {
-		if err := collectPath(root, name, "", entries, excluded); err != nil {
+	for _, item := range names {
+		result.Inputs = append(result.Inputs, item.name)
+		if err := collectPath(root, item.name, "", entries, excluded); err != nil {
 			if allowMissing && errors.Is(err, os.ErrNotExist) {
 				continue
 			}
+			cause := ErrRead
 			if errors.Is(err, os.ErrNotExist) {
-				return Snapshot{}, ErrMissing
+				cause = ErrMissing
+			} else if errors.Is(err, ErrUnsupported) {
+				cause = ErrUnsupported
 			}
-			if errors.Is(err, ErrUnsupported) {
-				return Snapshot{}, ErrUnsupported
-			}
-			return Snapshot{}, ErrRead
+			return Snapshot{}, &Error{Index: item.index, cause: cause}
 		}
 	}
 	for _, entry := range entries {
@@ -92,29 +114,29 @@ func collect(directory string, inputs []string, allowMissing bool) (Snapshot, er
 	return result, nil
 }
 
-func normalizeInputs(inputs []string) ([]string, error) {
+func normalizeInputs(inputs []string) ([]namedInput, error) {
 	if len(inputs) == 0 {
 		return nil, ErrArguments
 	}
 	seen := make(map[string]string)
-	names := make([]string, 0, len(inputs))
-	for _, name := range inputs {
+	names := make([]namedInput, 0, len(inputs))
+	for i, name := range inputs {
 		name, err := workspace.Normalize(name)
 		if err != nil {
-			return nil, ErrArguments
+			return nil, &Error{Index: i + 1, cause: ErrArguments}
 		}
 		if workspace.Excluded(name) != "" {
-			return nil, ErrExcluded
+			return nil, &Error{Index: i + 1, cause: ErrExcluded}
 		}
 		key := strings.ToLower(name)
 		if previous, exists := seen[key]; exists && previous != name {
-			return nil, ErrUnsupported
+			return nil, &Error{Index: i + 1, cause: ErrUnsupported}
 		} else if !exists {
 			seen[key] = name
-			names = append(names, name)
+			names = append(names, namedInput{name: name, index: i + 1})
 		}
 	}
-	slices.Sort(names)
+	slices.SortFunc(names, func(a, b namedInput) int { return strings.Compare(a.name, b.name) })
 	return names, nil
 }
 

@@ -230,6 +230,124 @@ func TestRunExecutable(t *testing.T) {
 			})
 		}
 	})
+	t.Run("入力エラーの番号と原因", func(t *testing.T) {
+		child, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		missing := "a-" + runMarker
+		many := append(slices.Repeat([]string{"src"}, 256), missing)
+		for _, tc := range []struct {
+			name, setup, reason string
+			inputs              []string
+			index, code         int
+		}{
+			{"不存在と並べ替え", "", "対象が存在しません", []string{"src", missing}, 2, 125},
+			{"重複指定の後の不存在", "", "対象が存在しません", []string{"src", "./src", missing}, 3, 125},
+			{"不存在入力の重複", "", "対象が存在しません", []string{"src", "./" + missing, missing}, 2, 125},
+			{"読取不能", "lock", "種類または内容を読み取れません", []string{"src", missing}, 2, 125},
+			{"子孫の読取不能", "lock-child", "種類または内容を読み取れません", []string{"src"}, 1, 125},
+			{"リンク拒否", "link", "対応していません", []string{"src", missing}, 2, 125},
+			{"リンク配下の拒否", "link", "対応していません", []string{"src", missing + "/変更"}, 2, 125},
+			{"子孫のリンク拒否", "link-child", "対応していません", []string{"src"}, 1, 125},
+			{"範囲外", "", "相対パスで指定してください", []string{"src", "../" + runMarker}, 2, 64},
+			{"管理領域", "", "管理領域を直接指定することはできません", []string{"src", ".git/" + runMarker}, 2, 64},
+			{"大小文字の衝突", "", "対応していません", []string{"src", "SRC"}, 2, 125},
+			{"多数の入力でも診断は1件", "", "対象が存在しません", many, 257, 125},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				dir := runDirectory(t)
+				t.Setenv("CHECKSTAMP_TEST_VALUE", runMarker)
+				var lock syscall.Handle
+				switch tc.setup {
+				case "lock", "lock-child":
+					name := filepath.Join(dir, missing)
+					if tc.setup == "lock-child" {
+						name = filepath.Join(dir, "src", "変更")
+					}
+					if err := os.WriteFile(name, []byte(runMarker), 0600); err != nil {
+						t.Fatal(err)
+					}
+					path, err := syscall.UTF16PtrFromString(name)
+					if err != nil {
+						t.Fatal(err)
+					}
+					lock, err = syscall.CreateFile(path, syscall.GENERIC_READ, 0, nil, syscall.OPEN_EXISTING, 0, 0)
+					if err != nil {
+						t.Fatal(err)
+					}
+					t.Cleanup(func() { syscall.CloseHandle(lock) })
+				case "link", "link-child":
+					name := filepath.Join(dir, missing)
+					if tc.setup == "link-child" {
+						name = filepath.Join(dir, "src", missing)
+					}
+					if err := os.Symlink(filepath.Join(dir, "src"), name); err != nil {
+						t.Skip("シンボリックリンクの作成権限がありません")
+					}
+				}
+				var previous []record.Issue
+				for _, flag := range []string{"", "--json", "--json-summary"} {
+					args := []string{"run", "--label", "入力診断"}
+					for _, name := range tc.inputs {
+						args = append(args, "--input", name)
+					}
+					if flag != "" {
+						args = append(args, flag)
+					}
+					args = append(args, "--", child, "-test.run=^TestStatusMustNotExecute$", "--", "--status-child", filepath.Join(dir, "誤った起動"), runMarker)
+					code, stdout, stderr := invokeRun(t, executable, dir, args...)
+					prefix := strconv.Itoa(tc.index) + "番目の --input "
+					if code != tc.code || !strings.Contains(stderr, prefix) || !strings.Contains(stderr, tc.reason) || !strings.Contains(stderr, "子プロセスは起動していません") {
+						t.Fatalf("入力の番号・原因・終了コードが一致しません: %s / %d / %s", flag, code, stderr)
+					}
+					for _, value := range []string{runMarker, dir, child} {
+						if strings.Contains(stdout+stderr, value) {
+							t.Fatal("入力・引数・環境・絶対パスの生値が診断へ混入しています")
+						}
+					}
+					for _, name := range []string{"誤った起動", ".checkstamp"} {
+						if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+							t.Fatal("入力の拒否前に子を起動したか、保存先を作成しています")
+						}
+					}
+					if flag == "" {
+						if stdout != "" {
+							t.Fatal("通常表示の診断が標準出力へ出ています")
+						}
+						continue
+					}
+					var issues []record.Issue
+					var status, runID string
+					var exitCode *int
+					if flag == "--json" {
+						result := decodeRun(t, stdout)
+						issues, status, runID, exitCode = result.Issues, result.Status, result.RunID, result.ChildExitCode
+						if result.Before != nil || result.After != nil || result.Conditions != nil {
+							t.Fatal("収集に失敗した入力や未確認の実行条件を返しています")
+						}
+					} else {
+						result := decodeSummary(t, stdout)
+						issues, status, runID, exitCode = result.Issues, result.Status, result.RunID, result.ChildExitCode
+						if result.ChangeCount != nil || result.CurrentChangeCount != nil || len(stdout) > 1024 {
+							t.Fatal("要約が未確認の件数を推定したか、診断が大きくなりすぎています")
+						}
+					}
+					wantStatus, wantIssue := "unknown", "input_collection_failed"
+					if tc.code == 64 {
+						wantStatus, wantIssue = "invalid_arguments", "invalid_arguments"
+					}
+					if status != wantStatus || runID != "" || exitCode != nil || len(issues) != 1 || issues[0].Code != wantIssue || !strings.Contains(stderr, issues[0].Description) {
+						t.Fatal("既存の判定・機械判定用コード・未取得の値・診断の対応が失われています")
+					}
+					if previous != nil && !reflect.DeepEqual(issues, previous) {
+						t.Fatal("両JSONモードの診断が一致しません")
+					}
+					previous = issues
+				}
+			})
+		}
+	})
 	t.Run("保存失敗でも終了コードを保持", func(t *testing.T) {
 		dir := runDirectory(t)
 		code, stdout, stderr := invokeRun(t, executable, dir, append(base(true), "save-failure")...)
