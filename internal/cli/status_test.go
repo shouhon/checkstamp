@@ -161,7 +161,7 @@ func decodeStatus(t *testing.T, output string) statusOutput {
 	if err := decoder.Decode(&extra); err != io.EOF {
 		t.Fatal("標準出力がJSONオブジェクト1件ではありません")
 	}
-	if result.SchemaVersion != 1 || result.Tool.Name != "checkstamp" || result.Tool.Version != version.String() || result.Command != "status" || len(result.Coverage.Omitted) == 0 || len(result.Coverage.Unverified) == 0 || result.Changes == nil || result.CurrentChanges == nil || result.Issues == nil {
+	if result.SchemaVersion != record.SchemaVersion || result.Tool.Name != "checkstamp" || result.Tool.Version != version.String() || result.Command != "status" || len(result.Coverage.Omitted) == 0 || len(result.Coverage.Unverified) == 0 || result.Changes == nil || result.CurrentChanges == nil || result.Issues == nil {
 		t.Fatalf("結果の共通情報が不足しています: %+v", result)
 	}
 	return result
@@ -302,6 +302,14 @@ func TestStatusExecutable(t *testing.T) {
 				} else if summary.CurrentChangeCount != nil {
 					t.Fatal("読取不能な現在の変更件数はnullが必要です")
 				}
+				changesCode, changesJSON, _ := invokeStatus(t, executable, dir, "status", run.ID(), "--json-changes")
+				changes := decodeChanges(t, changesJSON)
+				if changesCode != code || changes.Status != result.Status || !reflect.DeepEqual(changes.ChildExitCode, result.ChildExitCode) || !reflect.DeepEqual(changes.Issues, result.Issues) || (changes.Changes == nil) != (result.After == nil) || (changes.CurrentChanges == nil) != (result.Current == nil) {
+					t.Fatal("変更明細の判定・終了コード・問題・未確認の値が一致しません")
+				}
+				if result.After != nil && !reflect.DeepEqual(changes.Changes, result.Changes) || result.Current != nil && !reflect.DeepEqual(changes.CurrentChanges, result.CurrentChanges) {
+					t.Fatal("実行前後と現在の変更明細が一致しません")
+				}
 				code, text, _ := invokeStatus(t, executable, dir, "status", run.ID())
 				if code != wantCode || !strings.Contains(text, "判定: "+tc.status) || !strings.Contains(text, "未確認の条件:") {
 					t.Fatal("日本語表示の判定または終了コードがJSONと一致しません")
@@ -333,7 +341,7 @@ func TestStatusExecutable(t *testing.T) {
 					data := []byte(privateStatusValue)
 					wantIssue = "record_corrupt"
 					if kind == "未知形式" {
-						data = []byte(`{"schema_version":2,"非公開":"` + privateStatusValue + `"}`)
+						data = []byte(`{"schema_version":999,"非公開":"` + privateStatusValue + `"}`)
 						wantIssue = "unsupported_schema"
 					} else if kind == "キー重複" {
 						data = []byte(`{"schema_version":1,"schema_version":1}`)
@@ -368,6 +376,11 @@ func TestStatusExecutable(t *testing.T) {
 				summary := decodeSummary(t, summaryJSON)
 				if code != 2 || summary.Status != "unknown" || summary.ChildExitCode != nil || summary.ChangeCount != nil || (kind != "未完了" && summary.CurrentChangeCount != nil) || !reflect.DeepEqual(summary.Issues, result.Issues) {
 					t.Fatal("不成立の記録の要約で未確認の値または問題が失われています")
+				}
+				code, changesJSON, _ := invokeStatus(t, executable, dir, "status", run.ID(), "--json-changes")
+				changes := decodeChanges(t, changesJSON)
+				if code != 2 || changes.Status != "unknown" || changes.Changes != nil || (kind != "未完了" && changes.CurrentChanges != nil) || !reflect.DeepEqual(changes.Issues, result.Issues) {
+					t.Fatal("不成立の記録の変更明細で未確認の値または問題が失われています")
 				}
 				if !reflect.DeepEqual(original, statusTree(t, dir)) {
 					t.Fatal("失敗時にファイルを作成・変更しています")
@@ -409,7 +422,7 @@ func TestStatusOutputFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(dir)
-	for _, args := range [][]string{{"status", run.ID()}, {"status", run.ID(), "--json"}, {"status", run.ID(), "--json-summary"}} {
+	for _, args := range [][]string{{"status", run.ID()}, {"status", run.ID(), "--json"}, {"status", run.ID(), "--json-summary"}, {"status", run.ID(), "--json-changes"}} {
 		var stderr bytes.Buffer
 		if code := cli.Run(args, failingWriter{}, &stderr); code != 2 {
 			t.Fatalf("statusの出力失敗時の終了コード=%d、期待値=2", code)

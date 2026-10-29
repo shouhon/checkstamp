@@ -44,21 +44,24 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		Command: "status", Status: "unknown", Coverage: record.CoverageLimits(),
 		Changes: []input.Change{}, CurrentChanges: []input.Change{}, Issues: []record.Issue{},
 	}
-	jsonOutput, jsonSummary := false, false
+	jsonOutput, jsonSummary, jsonChanges := false, false, false
 	for _, arg := range args {
-		if arg == "--json" || arg == "--json-summary" {
+		if arg == "--json" || arg == "--json-summary" || arg == "--json-changes" {
 			jsonOutput = true
 		}
 		if arg == "--json-summary" {
 			jsonSummary = true
 		}
+		if arg == "--json-changes" {
+			jsonChanges = true
+		}
 	}
-	if len(args) < 1 || len(args) > 2 || len(args) == 2 && args[1] != "--json" && args[1] != "--json-summary" || !validRunID(args[0]) {
+	if len(args) < 1 || len(args) > 2 || len(args) == 2 && args[1] != "--json" && args[1] != "--json-summary" && args[1] != "--json-changes" || !validRunID(args[0]) {
 		result.Status = "invalid_arguments"
 		result.Issues = append(result.Issues, record.Issue{Code: "invalid_arguments", Description: "引数が正しくありません。使い方は --help で確認してください。"})
 		invalidArguments(stderr)
 		if jsonOutput {
-			writeStatusJSON(stdout, stderr, result, jsonSummary)
+			writeStatusJSON(stdout, stderr, result, jsonSummary, jsonChanges)
 		}
 		return 64
 	}
@@ -78,7 +81,7 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if jsonOutput {
-		if !writeStatusJSON(stdout, stderr, result, jsonSummary) {
+		if !writeStatusJSON(stdout, stderr, result, jsonSummary, jsonChanges) {
 			return 2
 		}
 	} else if !writeStatusText(stdout, stderr, result) {
@@ -128,7 +131,7 @@ func checkStatus(result *statusResult) {
 	result.Changes, result.Issues = saved.Changes, saved.Issues
 	result.Status = saved.Status
 
-	current, err := input.Recollect(directory, saved.Before.Inputs)
+	current, err := input.Recollect(directory, saved.Before.Inputs, saved.Before.ExcludePatterns...)
 	if err != nil {
 		result.Status = "unknown"
 		result.Issues = append(result.Issues, record.Issue{Code: "current_input_read_failed", Description: "現在の入力の種類または内容を十分に読み取れませんでした。"})
@@ -149,14 +152,22 @@ func checkStatus(result *statusResult) {
 	}
 }
 
-func writeStatusJSON(stdout, stderr io.Writer, result statusResult, summary bool) bool {
+func writeStatusJSON(stdout, stderr io.Writer, result statusResult, summary, changes bool) bool {
 	var output any = result
-	if summary {
-		output = summaryResult{
+	if summary || changes {
+		short := summaryResult{
 			SchemaVersion: result.SchemaVersion, Command: result.Command, RunID: result.RunID,
 			Status: result.Status, ChildExitCode: result.ChildExitCode,
 			ChangeCount:        changeCount(result.Changes, result.After != nil),
 			CurrentChangeCount: changeCount(result.CurrentChanges, result.Current != nil), Issues: result.Issues,
+			Exclusions: exclusions(result.Before),
+		}
+		output = short
+		if changes && !summary {
+			output = changesResult{
+				summaryResult: short, Changes: availableChanges(result.Changes, result.After != nil),
+				CurrentChanges: availableChanges(result.CurrentChanges, result.Current != nil),
+			}
 		}
 	}
 	if err := json.NewEncoder(stdout).Encode(output); err != nil {
@@ -175,6 +186,9 @@ func writeStatusText(stdout, stderr io.Writer, result statusResult) bool {
 	fmt.Fprintf(&text, "実行ID: %s\n判定: %s（%s）\n", result.RunID, result.Status, descriptions[result.Status])
 	if result.ChildExitCode != nil {
 		fmt.Fprintf(&text, "子プロセスの終了コード: %d\n", *result.ChildExitCode)
+	}
+	if scope := exclusions(result.Before); scope != nil {
+		fmt.Fprintf(&text, "除外条件（作業ディレクトリ基準）: %q\n", scope.Patterns)
 	}
 	for _, issue := range result.Issues {
 		fmt.Fprintf(&text, "確認事項: %s\n", issue.Description)

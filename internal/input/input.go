@@ -50,11 +50,12 @@ type Entry struct {
 	SHA256 string `json:"sha256,omitempty"`
 }
 
-// Snapshot は指定範囲、収集した入力、実際に除外した管理領域を保持する。
+// Snapshot は指定範囲、除外条件、収集した入力、実際に除外した範囲を保持する。
 type Snapshot struct {
-	Inputs   []string `json:"inputs"`
-	Entries  []Entry  `json:"entries"`
-	Excluded []string `json:"excluded"`
+	Inputs          []string `json:"inputs"`
+	ExcludePatterns []string `json:"exclude_patterns"`
+	Entries         []Entry  `json:"entries"`
+	Excluded        []string `json:"excluded"`
 }
 
 // Change は追加・削除・内容または種類の変更を表す。
@@ -66,31 +67,40 @@ type Change struct {
 }
 
 // Collect は実行前の入力を収集する。指定した入力が欠けていれば一覧を返さず失敗する。
-func Collect(directory string, inputs []string) (Snapshot, error) {
-	return collect(directory, inputs, false)
+func Collect(directory string, inputs []string, patterns ...string) (Snapshot, error) {
+	return collect(directory, inputs, patterns, false)
 }
 
 // Recollect は同じ範囲を再収集する。削除された入力は一覧から除き、読取失敗とは区別する。
-func Recollect(directory string, inputs []string) (Snapshot, error) {
-	return collect(directory, inputs, true)
+func Recollect(directory string, inputs []string, patterns ...string) (Snapshot, error) {
+	return collect(directory, inputs, patterns, true)
 }
 
-func collect(directory string, inputs []string, allowMissing bool) (Snapshot, error) {
+func collect(directory string, inputs, patterns []string, allowMissing bool) (Snapshot, error) {
 	names, err := normalizeInputs(inputs)
 	if err != nil {
 		return Snapshot{}, err
+	}
+	matcher, err := NewExclusions(patterns)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	for _, item := range names {
+		if matcher.Match(item.name) {
+			return Snapshot{}, &Error{Index: item.index, cause: ErrInputExcluded}
+		}
 	}
 	root, err := os.OpenRoot(directory)
 	if err != nil {
 		return Snapshot{}, ErrRead
 	}
 	defer root.Close()
-	result := Snapshot{Inputs: make([]string, 0, len(names)), Entries: []Entry{}, Excluded: []string{}}
+	result := Snapshot{Inputs: make([]string, 0, len(names)), ExcludePatterns: matcher.Patterns(), Entries: []Entry{}, Excluded: []string{}}
 	entries := make(map[string]Entry)
 	excluded := make(map[string]string)
 	for _, item := range names {
 		result.Inputs = append(result.Inputs, item.name)
-		if err := collectPath(root, item.name, "", entries, excluded); err != nil {
+		if err := collectPath(root, item.name, "", entries, excluded, matcher); err != nil {
 			if allowMissing && errors.Is(err, os.ErrNotExist) {
 				continue
 			}
@@ -140,7 +150,7 @@ func normalizeInputs(inputs []string) ([]namedInput, error) {
 	return names, nil
 }
 
-func collectPath(root *os.Root, name, prefix string, entries map[string]Entry, excluded map[string]string) error {
+func collectPath(root *os.Root, name, prefix string, entries map[string]Entry, excluded map[string]string, matcher Exclusions) error {
 	// 中間の構成要素も1件ずつ検査し、リンク配下を直接指定しても拒否する。
 	first, rest, nested := strings.Cut(name, "/")
 	full := path.Join(prefix, first)
@@ -155,6 +165,10 @@ func collectPath(root *os.Root, name, prefix string, entries map[string]Entry, e
 	if err := workspace.Check(info); err != nil {
 		return err
 	}
+	if matcher.Match(full) {
+		excluded[strings.ToLower(full)] = full
+		return nil
+	}
 	if nested {
 		if !info.IsDir() {
 			// 祖先が通常ファイルへ置き換わった場合、その配下の入力は削除として扱う。
@@ -165,7 +179,7 @@ func collectPath(root *os.Root, name, prefix string, entries map[string]Entry, e
 			return err
 		}
 		defer dir.Close()
-		return collectPath(dir, rest, full, entries, excluded)
+		return collectPath(dir, rest, full, entries, excluded, matcher)
 	}
 	key := strings.ToLower(full)
 	if _, ok := entries[key]; ok {
@@ -195,7 +209,7 @@ func collectPath(root *os.Root, name, prefix string, entries map[string]Entry, e
 				return ErrUnsupported
 			}
 			childNames[childKey] = true
-			if err := collectPath(dir, child.Name(), full, entries, excluded); err != nil {
+			if err := collectPath(dir, child.Name(), full, entries, excluded, matcher); err != nil {
 				// 列挙済みの項目が収集中に消えた場合も、部分的な一覧は返さない。
 				if errors.Is(err, os.ErrNotExist) {
 					return ErrRead

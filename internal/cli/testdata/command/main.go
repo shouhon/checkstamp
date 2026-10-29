@@ -22,7 +22,7 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "contract":
-		want := []string{"", "空白 日本語", `引用"符`, `末尾\`, `空白 末尾\`, "--json", "--json-summary", "--", marker}
+		want := []string{"", "空白 日本語", `引用"符`, `末尾\`, `空白 末尾\`, "--json", "--json-summary", "--json-changes", "--exclude", "**/__pycache__/**", "--", marker}
 		dir, _ := os.Getwd()
 		if !reflect.DeepEqual(os.Args[2:], want) || dir != os.Getenv("CHECKSTAMP_TEST_DIRECTORY") || os.Getenv("CHECKSTAMP_TEST_VALUE") != marker {
 			os.Exit(91)
@@ -32,6 +32,9 @@ func main() {
 	case "exit":
 		code, _ := strconv.Atoi(os.Args[2])
 		os.Exit(code)
+	case "cache":
+		must(os.MkdirAll("src/__pycache__", 0700))
+		must(os.WriteFile("src/__pycache__/sample.pyc", []byte(marker), 0600))
 	case "change":
 		must(os.WriteFile("src/追加", []byte(marker), 0600))
 		must(os.WriteFile("src/変更", []byte(marker), 0600))

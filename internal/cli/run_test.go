@@ -89,7 +89,7 @@ func decodeRun(t *testing.T, text string) runOutput {
 	if err := decoder.Decode(&extra); err != io.EOF {
 		t.Fatal("標準出力がJSONオブジェクト1件ではありません")
 	}
-	if result.SchemaVersion != 1 || result.Command != "run" || result.Tool.Name != "checkstamp" || result.Coverage.Omitted == nil || result.Issues == nil || result.Changes == nil {
+	if result.SchemaVersion != record.SchemaVersion || result.Command != "run" || result.Tool.Name != "checkstamp" || result.Coverage.Omitted == nil || result.Issues == nil || result.Changes == nil {
 		t.Fatal("実行結果の共通情報が不足しています")
 	}
 	if strings.Contains(text, runMarker) {
@@ -135,13 +135,14 @@ func TestRunExecutable(t *testing.T) {
 		}
 		return append(args, "--", helper)
 	}
+	t.Run("除外と変更明細", func(t *testing.T) { testExclusionsAndChanges(t, executable, helper) })
 
 	t.Run("引数と環境と作業場所と出力", func(t *testing.T) {
 		for _, jsonOutput := range []bool{false, true} {
 			dir := runDirectory(t)
 			t.Setenv("CHECKSTAMP_TEST_DIRECTORY", dir)
 			t.Setenv("CHECKSTAMP_TEST_VALUE", runMarker)
-			childArgs := []string{"contract", "", "空白 日本語", `引用"符`, `末尾\`, `空白 末尾\`, "--json", "--json-summary", "--", runMarker}
+			childArgs := []string{"contract", "", "空白 日本語", `引用"符`, `末尾\`, `空白 末尾\`, "--json", "--json-summary", "--json-changes", "--exclude", "**/__pycache__/**", "--", runMarker}
 			code, stdout, stderr := invokeRun(t, executable, dir, append(base(jsonOutput), childArgs...)...)
 			if code != 0 || !strings.Contains(stderr, runMarker+"-標準エラー") {
 				t.Fatalf("引数または出力の契約が成立しません: 終了コード=%d、標準エラー=%s", code, stderr)
@@ -402,7 +403,7 @@ func TestRunExecutable(t *testing.T) {
 		}
 		t.Setenv("CHECKSTAMP_TEST_DIRECTORY", dir)
 		t.Setenv("CHECKSTAMP_TEST_VALUE", runMarker)
-		childArgs := []string{"contract", "", "空白 日本語", `引用"符`, `末尾\`, `空白 末尾\`, "--json", "--json-summary", "--", runMarker}
+		childArgs := []string{"contract", "", "空白 日本語", `引用"符`, `末尾\`, `空白 末尾\`, "--json", "--json-summary", "--json-changes", "--exclude", "**/__pycache__/**", "--", runMarker}
 		args := []string{"run", "--label", "要約の試験", "--input", "src", "--json-summary", "--", helper}
 		code, stdout, stderr := invokeRun(t, executable, dir, append(args, childArgs...)...)
 		result := decodeSummary(t, stdout)

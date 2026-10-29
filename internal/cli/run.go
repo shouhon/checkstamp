@@ -20,8 +20,10 @@ import (
 type runOptions struct {
 	label           string
 	inputs, command []string
+	excludes        []string
 	json            bool
 	jsonSummary     bool
+	jsonChanges     bool
 }
 
 type runResult struct {
@@ -57,17 +59,20 @@ func parseRun(args []string) (options runOptions, valid bool) {
 		flags, options.command = args[:boundary], args[boundary+1:]
 	}
 	for _, arg := range flags {
-		if arg == "--json" || arg == "--json-summary" {
+		if arg == "--json" || arg == "--json-summary" || arg == "--json-changes" {
 			options.json = true
 		}
 		if arg == "--json-summary" {
 			options.jsonSummary = true
 		}
+		if arg == "--json-changes" {
+			options.jsonChanges = true
+		}
 	}
 	seenLabel, seenJSON := false, false
 	for i := 0; i < len(flags); i++ {
 		switch flags[i] {
-		case "--label", "--input":
+		case "--label", "--input", "--exclude":
 			if i+1 >= len(flags) || flags[i+1] == "" || strings.ContainsRune(flags[i+1], '\x00') || strings.HasPrefix(flags[i+1], "--") {
 				return options, false
 			}
@@ -77,10 +82,12 @@ func parseRun(args []string) (options runOptions, valid bool) {
 					return options, false
 				}
 				seenLabel, options.label = true, flags[i]
-			} else {
+			} else if flags[i-1] == "--input" {
 				options.inputs = append(options.inputs, flags[i])
+			} else {
+				options.excludes = append(options.excludes, flags[i])
 			}
-		case "--json", "--json-summary":
+		case "--json", "--json-summary", "--json-changes":
 			if seenJSON {
 				return options, false
 			}
@@ -110,11 +117,16 @@ func runCommand(args []string, stdout, stderr io.Writer) int {
 	finish := func(code int) int {
 		if options.json {
 			var output any = result
-			if options.jsonSummary {
-				output = summaryResult{
+			if options.jsonSummary || options.jsonChanges {
+				summary := summaryResult{
 					SchemaVersion: result.SchemaVersion, Command: result.Command, RunID: result.RunID,
 					Status: result.Status, ChildExitCode: result.ChildExitCode,
 					ChangeCount: changeCount(result.Changes, result.After != nil), Issues: result.Issues,
+					Exclusions: exclusions(result.Before),
+				}
+				output = summary
+				if options.jsonChanges && !options.jsonSummary {
+					output = changesResult{summaryResult: summary, Changes: availableChanges(result.Changes, result.After != nil)}
 				}
 			}
 			if err := json.NewEncoder(stdout).Encode(output); err != nil {
@@ -122,6 +134,9 @@ func runCommand(args []string, stdout, stderr io.Writer) int {
 			}
 		} else {
 			fmt.Fprintf(stderr, "checkstamp: 判定: %s\n", result.Status)
+			if scope := exclusions(result.Before); scope != nil {
+				fmt.Fprintf(stderr, "checkstamp: 除外条件（作業ディレクトリ基準）: %q\n", scope.Patterns)
+			}
 			fmt.Fprintf(stderr, "checkstamp: 保存しない情報: %s\ncheckstamp: 未確認の条件: %s\n", strings.Join(result.Coverage.Omitted, "、"), strings.Join(result.Coverage.Unverified, "、"))
 		}
 		for _, issue := range result.Issues {
@@ -147,10 +162,10 @@ func runCommand(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(125, "working_directory_unavailable", "作業ディレクトリを確認できませんでした。")
 	}
-	before, err := input.Collect(directory, options.inputs)
+	before, err := input.Collect(directory, options.inputs, options.excludes...)
 	if err != nil {
 		description := inputFailureDescription(err)
-		if errors.Is(err, input.ErrArguments) || errors.Is(err, input.ErrExcluded) {
+		if errors.Is(err, input.ErrArguments) || errors.Is(err, input.ErrExcluded) || errors.Is(err, input.ErrExcludePattern) || errors.Is(err, input.ErrInputExcluded) {
 			return fail(64, "invalid_arguments", description)
 		}
 		return fail(125, "input_collection_failed", description)
@@ -200,7 +215,7 @@ func runCommand(args []string, stdout, stderr io.Writer) int {
 		}
 		return fail(*child.ExitCode, "process_cleanup_failed", "管理対象プロセスの終了を確認できませんでした。完了記録は保存していません。")
 	}
-	after, readErr := input.Recollect(directory, before.Inputs)
+	after, readErr := input.Recollect(directory, before.Inputs, before.ExcludePatterns...)
 	var finalInput *input.Snapshot
 	if readErr == nil {
 		finalInput = &after
@@ -227,6 +242,9 @@ func runCommand(args []string, stdout, stderr io.Writer) int {
 }
 
 func inputFailureDescription(err error) string {
+	if errors.Is(err, input.ErrExcludePattern) {
+		return "--exclude は作業ディレクトリ基準の / 区切りで指定してください。*・?・文字クラスと、構成要素全体の ** が使えます。子プロセスは起動していません。"
+	}
 	subject := "入力"
 	var failure *input.Error
 	if errors.As(err, &failure) {
@@ -238,6 +256,8 @@ func inputFailureDescription(err error) string {
 		reason = "は作業ディレクトリ内の相対パスで指定してください。"
 	case errors.Is(err, input.ErrExcluded):
 		reason = "に管理領域を直接指定することはできません。"
+	case errors.Is(err, input.ErrInputExcluded):
+		reason = "は除外条件に含まれています。明示した入力は除外できません。"
 	case errors.Is(err, input.ErrMissing):
 		reason = "の対象が存在しません。"
 	case errors.Is(err, input.ErrUnsupported):

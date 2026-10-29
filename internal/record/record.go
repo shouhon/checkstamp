@@ -17,7 +17,7 @@ import (
 )
 
 // SchemaVersion は保存形式の版。製品の版番号とは独立して管理する。
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 var (
 	ErrCorrupt    = errors.New("記録が破損しているか、必要な情報が不足しています。")
@@ -144,15 +144,22 @@ func validHash(hash string) bool {
 	return err == nil && hash == strings.ToLower(hash)
 }
 
-func validateSnapshot(snapshot input.Snapshot, allowMissing bool) bool {
+func validateSnapshot(snapshot input.Snapshot, allowMissing bool, schema int) bool {
 	if len(snapshot.Inputs) == 0 || snapshot.Entries == nil || snapshot.Excluded == nil || !slices.IsSorted(snapshot.Inputs) || !slices.IsSorted(snapshot.Excluded) {
+		return false
+	}
+	if schema == 1 && snapshot.ExcludePatterns != nil || schema == SchemaVersion && snapshot.ExcludePatterns == nil {
+		return false
+	}
+	matcher, err := input.NewExclusions(snapshot.ExcludePatterns)
+	if err != nil || !slices.Equal(matcher.Patterns(), snapshot.ExcludePatterns) {
 		return false
 	}
 	roots := make(map[string]bool)
 	for _, name := range snapshot.Inputs {
 		normalized, err := workspace.Normalize(name)
 		key := strings.ToLower(name)
-		if err != nil || normalized != name || workspace.Excluded(name) != "" || roots[key] {
+		if err != nil || normalized != name || workspace.Excluded(name) != "" || matcher.Match(name) || roots[key] {
 			return false
 		}
 		roots[key] = true
@@ -170,7 +177,7 @@ func validateSnapshot(snapshot input.Snapshot, allowMissing bool) bool {
 	for _, entry := range snapshot.Entries {
 		normalized, err := workspace.Normalize(entry.Path)
 		key := strings.ToLower(entry.Path)
-		if err != nil || normalized != entry.Path || workspace.Excluded(entry.Path) != "" || !within(key) || entry.Path <= previous {
+		if err != nil || normalized != entry.Path || workspace.Excluded(entry.Path) != "" || matcher.Match(entry.Path) || !within(key) || entry.Path <= previous {
 			return false
 		}
 		if _, ok := entries[key]; ok {
@@ -202,7 +209,7 @@ func validateSnapshot(snapshot input.Snapshot, allowMissing bool) bool {
 	for _, name := range snapshot.Excluded {
 		key := strings.ToLower(name)
 		normalized, err := workspace.Normalize(name)
-		if err != nil || normalized != name || workspace.Excluded(name) != name || !within(key) || seenExcluded[key] {
+		if err != nil || normalized != name || workspace.Excluded(name) != name && !matcher.Match(name) || !within(key) || seenExcluded[key] {
 			return false
 		}
 		seenExcluded[key] = true
@@ -211,13 +218,13 @@ func validateSnapshot(snapshot input.Snapshot, allowMissing bool) bool {
 }
 
 func validate(r Record) error {
-	if r.SchemaVersion != SchemaVersion {
+	if r.SchemaVersion != 1 && r.SchemaVersion != SchemaVersion {
 		if r.SchemaVersion > 0 {
 			return ErrSchema
 		}
 		return ErrCorrupt
 	}
-	if !validID(r.RunID) || r.Tool.Name != "checkstamp" || r.Tool.Version == "" || r.Command != "run" || strings.TrimSpace(r.Label) == "" || r.StartedAt.IsZero() || r.StartedAt.Location() != time.UTC || !filepath.IsAbs(r.Conditions.WorkingDirectory) || !filepath.IsAbs(r.Conditions.Executable) || !validHash(r.Conditions.ArgumentsSHA256) || !reflect.DeepEqual(r.Coverage, CoverageLimits()) || !validateSnapshot(r.Before, false) || r.Changes == nil || r.Issues == nil {
+	if !validID(r.RunID) || r.Tool.Name != "checkstamp" || r.Tool.Version == "" || r.Command != "run" || strings.TrimSpace(r.Label) == "" || r.StartedAt.IsZero() || r.StartedAt.Location() != time.UTC || !filepath.IsAbs(r.Conditions.WorkingDirectory) || !filepath.IsAbs(r.Conditions.Executable) || !validHash(r.Conditions.ArgumentsSHA256) || !reflect.DeepEqual(r.Coverage, CoverageLimits()) || !validateSnapshot(r.Before, false, r.SchemaVersion) || r.Changes == nil || r.Issues == nil {
 		return ErrCorrupt
 	}
 	switch r.Phase {
@@ -230,7 +237,7 @@ func validate(r Record) error {
 			return ErrCorrupt
 		}
 		if r.After != nil {
-			if !validateSnapshot(*r.After, true) || !slices.Equal(r.Before.Inputs, r.After.Inputs) || !reflect.DeepEqual(r.Changes, input.Diff(r.Before, *r.After)) {
+			if !validateSnapshot(*r.After, true, r.SchemaVersion) || !slices.Equal(r.Before.Inputs, r.After.Inputs) || !slices.Equal(r.Before.ExcludePatterns, r.After.ExcludePatterns) || !reflect.DeepEqual(r.Changes, input.Diff(r.Before, *r.After)) {
 				return ErrCorrupt
 			}
 		} else if len(r.Changes) != 0 {

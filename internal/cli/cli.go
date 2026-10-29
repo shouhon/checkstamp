@@ -15,8 +15,17 @@ const helpText = `checkstamp - 検証結果と指定した入力の状態を結�
 使い方:
   checkstamp --help
   checkstamp --version
-  checkstamp status <実行ID> [--json | --json-summary]
-  checkstamp run --label <名前> --input <対象> [--input <対象> ...] [--json | --json-summary] -- <コマンド> [引数...]
+  checkstamp status <実行ID> [--json | --json-summary | --json-changes]
+  checkstamp run --label <名前> --input <対象> [--input <対象> ...] [--exclude <パターン> ...] [--json | --json-summary | --json-changes] -- <コマンド> [引数...]
+
+入力の明示的な除外:
+  --exclude は作業ディレクトリ基準の / 区切りで指定します。複数指定できます。
+  *・?・文字クラスは1階層内、構成要素全体の ** は0階層以上に一致します。
+  大文字小文字を区別せず、一致したディレクトリ全体を除外します。
+  例: --input src --exclude '**/__pycache__/**'
+  明示した --input 自身やその祖先の除外、不正なパターンは拒否します。
+  除外した木は探索しません。探索する項目のリンク・再解析ポイントは拒否します。
+  status は記録した条件を使い、除外の追加や変更は受け付けません。
 
 run の終了コードと出力:
   起動後は子プロセスの終了コードをそのまま返します。
@@ -24,6 +33,7 @@ run の終了コードと出力:
   通常は子の出力先を保ち、実行IDと判定を標準エラーへ出します。
   --json は子の両出力を標準エラーへ流し、標準出力へ結果JSON1件を出します。
   --json-summary は同じ出力先で、入力一覧や差分の明細を含めない短いJSON1件を出します。
+  --json-changes は同じ出力先で、要約と変更の明細だけをJSON1件で返します。
   実行ファイル（.exe / .com）を直接起動します。スクリプトは明示的にpwshなどへ渡してください。
   Ctrl+C / Ctrl+Breakで中断を通知し、2秒後または再度の中断で子孫を終了します。
   起動後の記録失敗でも終了コードを変えません。記録の成立はstatusで確認してください。
@@ -36,8 +46,11 @@ status の終了コード:
   同じ作業ディレクトリから照合します。再実行や記録の書換えは行いません。
   --json は結果JSONオブジェクト1件を標準出力へ出します。
   --json-summary は実行ID、判定、子の終了コード、変更件数、問題を短いJSONで返します。
+  --json-changes は要約に changes（実行前後）と current_changes（現在）を加えます。
+  確認済みで変更がなければ []、未確認なら null です。runの現在差分は常にnullです。
   変更件数は実行前後と現在を分け、未確認の件数や終了コードはnullです。
-  --json と --json-summary は併用できません。runはどちらでも詳細な記録を保存します。
+  JSONモードは併用・重複できません。runはどの表示でも詳細な記録を保存します。
+  除外条件は通常表示と全JSONモードで確認でき、要約・変更明細ではexclusionsに返します。
 
 判定の有効範囲:
   指定した入力と記録できた実行条件だけを確認します。

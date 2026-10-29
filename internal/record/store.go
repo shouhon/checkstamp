@@ -130,6 +130,7 @@ func (s *Store) Start(label, executable string, args []string, before input.Snap
 	}
 	// 呼出し元のスライス変更で、保存済みの開始条件が変わらないよう複製する。
 	before.Inputs = slices.Clone(before.Inputs)
+	before.ExcludePatterns = slices.Clone(before.ExcludePatterns)
 	before.Entries = slices.Clone(before.Entries)
 	before.Excluded = slices.Clone(before.Excluded)
 	r := Record{
@@ -266,7 +267,7 @@ func (s *Store) Load(id string) (Record, error) {
 	if err := json.Unmarshal(data, &header); err != nil {
 		return Record{}, ErrCorrupt
 	}
-	if header.SchemaVersion > 0 && header.SchemaVersion != SchemaVersion {
+	if header.SchemaVersion > 0 && header.SchemaVersion != 1 && header.SchemaVersion != SchemaVersion {
 		return Record{}, ErrSchema
 	}
 	var fields map[string]json.RawMessage
@@ -282,6 +283,18 @@ func (s *Store) Load(id string) (Record, error) {
 		value, ok := fields[key]
 		if !ok || string(value) == "null" && key != "after" && key != "finished_at" && key != "child_exit_code" {
 			return Record{}, ErrCorrupt
+		}
+	}
+	if header.SchemaVersion == 1 {
+		// 形式1では除外条件を解釈しない。形式2の条件を版だけ変えて黙って捨てない。
+		for _, key := range []string{"before", "after"} {
+			var snapshot map[string]json.RawMessage
+			if err := json.Unmarshal(fields[key], &snapshot); err != nil {
+				return Record{}, ErrCorrupt
+			}
+			if _, exists := snapshot["exclude_patterns"]; exists {
+				return Record{}, ErrCorrupt
+			}
 		}
 	}
 	var r Record

@@ -198,7 +198,7 @@ func TestCorruptAndUnknownRecordsAreRejected(t *testing.T) {
 		{"空", func([]byte) []byte { return nil }, record.ErrCorrupt},
 		{"必要情報なし", func([]byte) []byte { return []byte(`{"schema_version":1}`) }, record.ErrCorrupt},
 		{"未知形式", func(b []byte) []byte {
-			return bytes.Replace(b, []byte(`"schema_version":1`), []byte(`"schema_version":2`), 1)
+			return bytes.Replace(b, []byte(`"schema_version":2`), []byte(`"schema_version":999`), 1)
 		}, record.ErrSchema},
 		{"余分な情報", func(b []byte) []byte { return append([]byte(`{"private":"検証用の非公開エラー",`), b[1:]...) }, record.ErrCorrupt},
 		{"判定の矛盾", func(b []byte) []byte {
@@ -223,6 +223,60 @@ func TestCorruptAndUnknownRecordsAreRejected(t *testing.T) {
 	}
 	if _, err := store.Load("../検証用の非公開ID"); !errors.Is(err, record.ErrID) {
 		t.Fatal("範囲外の実行IDを拒否していません")
+	}
+}
+
+func TestLegacyRecordsAndExclusionValidation(t *testing.T) {
+	dir, store, before := setup(t)
+	run := start(t, dir, store, before)
+	if _, err := run.Complete(0, &before, false); err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Join(dir, ".checkstamp/runs", run.ID()+".json")
+	data, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := bytes.Replace(data, []byte(`"schema_version":2`), []byte(`"schema_version":1`), 1)
+	legacy = bytes.ReplaceAll(legacy, []byte(`,"exclude_patterns":[]`), nil)
+	if err := os.WriteFile(name, legacy, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if loaded, err := store.Load(run.ID()); err != nil || loaded.Status != "valid" || loaded.SchemaVersion != 1 {
+		t.Fatalf("形式1の既存記録を読み取れません: %v", err)
+	}
+	for _, invalid := range [][]byte{
+		bytes.ReplaceAll(data, []byte(`,"exclude_patterns":[]`), nil),
+		bytes.ReplaceAll(data, []byte(`"exclude_patterns":[]`), []byte(`"exclude_patterns":null`)),
+		bytes.ReplaceAll(data, []byte(`"exclude_patterns":[]`), []byte(`"exclude_patterns":["../外部"]`)),
+		bytes.ReplaceAll(data, []byte(`"exclude_patterns":[]`), []byte(`"exclude_patterns":["入力"]`)),
+		bytes.Replace(data, []byte(`"exclude_patterns":[]`), []byte(`"exclude_patterns":["*.tmp"]`), 1),
+		bytes.Replace(data, []byte(`"schema_version":2`), []byte(`"schema_version":1`), 1),
+		bytes.ReplaceAll(bytes.Replace(data, []byte(`"schema_version":2`), []byte(`"schema_version":1`), 1), []byte(`"exclude_patterns":[]`), []byte(`"exclude_patterns":null`)),
+	} {
+		if err := os.WriteFile(name, invalid, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Load(run.ID()); !errors.Is(err, record.ErrCorrupt) {
+			t.Fatal("不足・不正・矛盾した除外条件を拒否していません")
+		}
+	}
+}
+
+func TestExclusionConditionsAreSavedIndependently(t *testing.T) {
+	dir, store, _ := setup(t)
+	before, err := input.Collect(dir, []string{"入力"}, "**/__pycache__/**")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := start(t, dir, store, before)
+	before.ExcludePatterns[0] = "入力"
+	after, err := input.Recollect(dir, before.Inputs, "**/__pycache__/**")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved, err := run.Complete(0, &after, false); err != nil || saved.Status != "valid" || saved.Before.ExcludePatterns[0] != "**/__pycache__/**" {
+		t.Fatalf("呼出し元の変更で除外条件が変わりました: %v", err)
 	}
 }
 

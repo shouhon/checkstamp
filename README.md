@@ -75,11 +75,25 @@ checkstamp run --label unit --input cmd --input internal --input go.mod -- go te
 
 `--label` は空でない名前、`--input` は1件以上の相対パスが必須です。ファイルまたはディレクトリを指定できます。`--` 以降を子のコマンドと引数として渡します。別のプロジェクトでは、その検証に必要な入力へ置き換えてください。
 
-入力の収集に失敗すると、例えば「2番目の --input の対象が存在しません。子プロセスは起動していません。」と表示します。番号は正規化や重複除去の前の指定順（1始まり）です。不存在・読取不能・未対応入力などを区別し、標準エラーと両JSONモードの `issues` に同じ説明を返します。この診断に入力名やOSエラーの全文は含めず、番号や詳細な原因を特定できない場合は推測しません。最初に検出した1件で停止します。
+入力の収集に失敗すると、例えば「2番目の --input の対象が存在しません。子プロセスは起動していません。」と表示します。番号は正規化や重複除去の前の指定順（1始まり）です。不存在・読取不能・未対応入力などを区別し、標準エラーと全JSONモードの `issues` に同じ説明を返します。この診断に入力名やOSエラーの全文は含めず、番号や詳細な原因を特定できない場合は推測しません。最初に検出した1件で停止します。
 
 通常は子プロセスの標準出力と標準エラーを元の出力先へ流し、実行IDと判定を標準エラーへ表示します。記録は、実行時の作業ディレクトリの `.checkstamp/runs/<実行ID>.json` に保存します。同じラベルでも過去の記録を上書きしません。
 
 実行ファイル（`.exe` / `.com`）を直接起動します。PowerShellスクリプトを実行する場合は、`-- pwsh -NoProfile -File .\scripts\test.ps1` のようにPowerShellを明示します。
+
+### 生成物を明示的に除外する
+
+ディレクトリを入力にしたまま、生成されるキャッシュなどを `--exclude` で除外できます。
+
+```powershell
+$result = checkstamp run --label python-tests --input src --exclude '**/__pycache__/**' --json-summary -- python.exe -m unittest | ConvertFrom-Json
+```
+
+除外パターンは作業ディレクトリを基準に `/` 区切りで指定し、複数回指定できます。`*`・`?`・文字クラス（`[ab]` など）は1階層内、構成要素全体の `**` は0階層以上に一致します。大文字小文字は区別しません。`**/__pycache__/**` は `__pycache__` ディレクトリ自体とその配下に一致します。一致したディレクトリは探索しません。
+
+除外条件は記録へ保存し、`status` でも同じ条件を使います。キャッシュだけの追加・更新では入力変更とならず、除外されていないソースの変更・追加・削除は引き続き検出します。既定では管理領域以外を除外せず、Gitの設定も参照しません。明示した `--input` 自身やその祖先を除外する指定は引数エラーになります。探索する項目のリンク・再解析ポイントは、除外に一致しても拒否します。
+
+通常表示では除外条件を表示し、詳細JSONと保存記録では各一覧の `exclude_patterns` と、実際に除外した範囲の `excluded` を確認できます。要約・変更明細のJSONには、明示除外がある場合だけ `exclusions: {"base":"working_directory","patterns":[...]}` を加えます。
 
 ### 現在の入力と照合する
 
@@ -115,12 +129,24 @@ checkstamp status $result.run_id --json-summary
 照合時の要約は次の形式です。
 
 ```json
-{"schema_version":1,"command":"status","run_id":"0123456789abcdef0123456789abcdef","status":"valid","child_exit_code":0,"change_count":0,"current_change_count":0,"issues":[]}
+{"schema_version":2,"command":"status","run_id":"0123456789abcdef0123456789abcdef","status":"valid","child_exit_code":0,"change_count":0,"current_change_count":0,"issues":[]}
 ```
 
 `change_count` は実行前後、`current_change_count` は最後の記録から現在までの変更件数です。変更されたパスをファイル・ディレクトリとも各1件として数え、未確認の件数と取得できない終了コードは `null` です。`run` は現在との再照合を行わないため、`current_change_count` は常に `null` です。問題は `issues` の識別子と日本語の説明で確認できます。
 
-実行前後の詳しい入力一覧と差分は、要約モードでも `.checkstamp/runs/<実行ID>.json` に保存します。現在の一覧や差分の明細も必要な場合は、従来の `checkstamp status $result.run_id --json` を使ってください。`run --json` の詳細出力も維持しています。`--json` と `--json-summary` は併用できません。
+実行前後の詳しい入力一覧と差分は、どの表示でも `.checkstamp/runs/<実行ID>.json` に保存します。現在の入力一覧も必要な場合は `checkstamp status $result.run_id --json` を使ってください。
+
+変更されたパスだけを調べる場合は `--json-changes` を使います。
+
+```powershell
+$changes = checkstamp status $result.run_id --json-changes | ConvertFrom-Json
+$changes.changes          # 検証の実行前後の差分
+$changes.current_changes  # 最後の記録から現在までの差分
+```
+
+要約の項目に `changes` と `current_changes` を加え、変更パス・変更種類（`added` / `removed` / `modified`）と、存在する側の種類・SHA-256を返します。確認済みで変更がなければ `[]`、読み取れないなどで未確認なら `null` です。`run --json-changes` も使えますが、現在との再照合を行わないため `current_changes` は常に `null` です。変更のない入力一覧は含めず、検証コマンドも再実行しません。
+
+どのJSONモードも標準出力はJSONオブジェクト1件で、`run` の子の両出力は標準エラーへ流します。`--json`・`--json-summary`・`--json-changes` の重複・併用は引数エラーです。
 
 ### 中断と記録の管理
 
@@ -157,7 +183,7 @@ pwsh -NoProfile -File .\scripts\build.ps1
 
 成果物は `dist/checkstamp.exe` です。Goファイルの整形には `gofmt -w ./cmd ./internal` を使用します。終了コードの確認には、`go run` ではなくビルドした実行ファイルを使用してください。
 
-版番号の正本は `internal/version/VERSION`、保存・JSON形式は `schema_version: 1` です。配布物の作成方法は[リリース手順](docs/releasing.md)、実装と受入確認は[開発計画](docs/development-plan.md)、変更時の規則は[AGENTS.md](AGENTS.md)にまとめています。
+版番号の正本は `internal/version/VERSION`、新しい保存・JSON形式は `schema_version: 2` です。形式1の既存記録も、明示除外なしとして読み取れます。形式2の記録には0.6.0以降のCLIを使ってください。配布物の作成方法は[リリース手順](docs/releasing.md)、実装と受入確認は[開発計画](docs/development-plan.md)、変更時の規則は[AGENTS.md](AGENTS.md)にまとめています。
 
 GitHub Actionsは `main` へのpushと `main` 宛てのプルリクエストで検査・配布準備を実行します。`main` へのpushで版番号の値が変わった場合は、検査成功後にタグとGitHub Releaseを作成し、ZIP・Scoop定義・ハッシュ一覧を公開します。公開済みの同じ版は上書きしません。失敗時の再実行は[自動公開の手順](docs/releasing.md#mainへのpushで自動公開する)を参照してください。
 

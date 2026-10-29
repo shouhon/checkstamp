@@ -20,6 +20,10 @@ type summaryOutput struct {
 	ChangeCount        *int           `json:"change_count"`
 	CurrentChangeCount *int           `json:"current_change_count"`
 	Issues             []record.Issue `json:"issues"`
+	Exclusions         *struct {
+		Base     string   `json:"base"`
+		Patterns []string `json:"patterns"`
+	} `json:"exclusions,omitempty"`
 }
 
 func decodeSummary(t *testing.T, output string) summaryOutput {
@@ -35,10 +39,14 @@ func decodeSummary(t *testing.T, output string) summaryOutput {
 		t.Fatal("要約の標準出力がJSONオブジェクト1件ではありません")
 	}
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(output), &fields); err != nil || len(fields) != 8 {
+	wantFields := 8
+	if result.Exclusions != nil {
+		wantFields++
+	}
+	if err := json.Unmarshal([]byte(output), &fields); err != nil || len(fields) != wantFields {
 		t.Fatal("要約の項目が不足しているか、詳細が混入しています")
 	}
-	if result.SchemaVersion != 1 || (result.Command != "run" && result.Command != "status") || result.Issues == nil {
+	if result.SchemaVersion != record.SchemaVersion || (result.Command != "run" && result.Command != "status") || result.Issues == nil {
 		t.Fatal("要約の共通情報が不足しています")
 	}
 	if strings.Contains(output, runMarker) || strings.Contains(output, privateStatusValue) {
