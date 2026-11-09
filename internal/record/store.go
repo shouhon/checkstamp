@@ -70,6 +70,9 @@ func open(directory string, create bool) (*Store, error) {
 	}
 	storage, err := workspace.OpenDir(working, ".checkstamp")
 	if err != nil {
+		if !create && errors.Is(err, os.ErrNotExist) {
+			return nil, ErrNoStorage
+		}
 		return nil, ErrOwnership
 	}
 	defer storage.Close()

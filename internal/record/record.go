@@ -27,6 +27,7 @@ var (
 	ErrWrite      = errors.New("記録を保存できませんでした。")
 	ErrOwnership  = errors.New(".checkstamp をcheckstamp専用の保存先として確認できませんでした。")
 	ErrID         = errors.New("実行IDの形式が正しくありません。")
+	ErrNoStorage  = errors.New("記録先はまだ作成されていません。")
 )
 
 // Tool は記録を作成した製品名と版番号を表す。

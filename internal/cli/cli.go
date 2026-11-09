@@ -15,8 +15,17 @@ const helpText = `checkstamp - 検証結果と指定した入力の状態を結�
 使い方:
   checkstamp --help
   checkstamp --version
+  checkstamp list [--label <名前>] [--limit <件数>] [--json-summary]
   checkstamp status <実行ID> [--json | --json-summary | --json-changes]
   checkstamp run --label <名前> --input <対象> [--input <対象> ...] [--exclude <パターン> ...] [--json | --json-summary | --json-changes] -- <コマンド> [引数...]
+  checkstamp <run | status | list> --help / -h
+
+保存済みの実行IDを探す:
+  list は保存時の短い情報だけを、開始日時の新しい順に返します。
+  --label は完全一致、--limit は1～1000件（既定20件）です。
+  読取不能で日時が不明の記録を先に表示します。同時刻は実行IDの昇順です。
+  現在の有効性は status <実行ID> で確認してください。
+  終了コードは0が一覧読取完了、2が未完了・読取不能など、64が引数エラーです。
 
 入力の明示的な除外:
   --exclude は作業ディレクトリ基準の / 区切りで指定します。複数指定できます。
@@ -66,14 +75,14 @@ status の終了コード:
 仕様は docs/requirements.md、実装順は docs/development-plan.md を参照してください。
 `
 
-// Run は案内、検証コマンドの実行、記録の照合を行い終了コードを返す。自身は終了しない。
+// Run は案内、検証の実行、記録の照合・一覧を扱い終了コードを返す。自身は終了しない。
 func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		return invalidArguments(stderr)
 	}
 
 	switch args[0] {
-	case "--help":
+	case "--help", "-h":
 		if len(args) != 1 {
 			return invalidArguments(stderr)
 		}
@@ -84,12 +93,27 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		return writeOutput(stdout, stderr, "checkstamp "+version.String()+"\n")
 	case "run":
+		if subcommandHelp(args[1:]) {
+			return writeOutput(stdout, stderr, runHelpText)
+		}
 		return runCommand(args[1:], stdout, stderr)
 	case "status":
+		if subcommandHelp(args[1:]) {
+			return writeOutput(stdout, stderr, statusHelpText)
+		}
 		return runStatus(args[1:], stdout, stderr)
+	case "list":
+		if subcommandHelp(args[1:]) {
+			return writeOutput(stdout, stderr, listHelpText)
+		}
+		return runList(args[1:], stdout, stderr)
 	default:
 		return invalidArguments(stderr)
 	}
+}
+
+func subcommandHelp(args []string) bool {
+	return len(args) == 1 && (args[0] == "--help" || args[0] == "-h")
 }
 
 func invalidArguments(stderr io.Writer) int {

@@ -239,7 +239,7 @@ func testExclusionsAndChanges(t *testing.T, executable, helper string) {
 		t.Setenv("CHECKSTAMP_TEST_DIRECTORY", dir)
 		t.Setenv("CHECKSTAMP_TEST_VALUE", runMarker)
 		args := []string{"run", "--label", "子の引数", "--input", "src", "--json-changes", "--", helper,
-			"contract", "", "空白 日本語", `引用"符`, `末尾\`, `空白 末尾\`, "--json", "--json-summary", "--json-changes", "--exclude", "**/__pycache__/**", "--", runMarker}
+			"contract", "", "空白 日本語", `引用"符`, `末尾\`, `空白 末尾\`, "--json", "--json-summary", "--json-changes", "--exclude", "**/__pycache__/**", "--help", "-h", "--", runMarker}
 		code, output, stderr := invokeRun(t, executable, dir, args...)
 		if code != 0 || decodeChanges(t, output).Status != "valid" || !strings.Contains(stderr, runMarker+"-標準出力") || !strings.Contains(stderr, runMarker+"-標準エラー") {
 			t.Fatal("子の引数か標準出力・標準エラーの転送先が変わっています")
