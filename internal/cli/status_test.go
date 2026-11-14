@@ -173,6 +173,7 @@ func TestStatusExecutable(t *testing.T) {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("受入試験用ビルドが失敗しました: %v\n%s", err, output)
 	}
+	t.Run("複数の実行ID", func(t *testing.T) { testMultipleStatusExecutable(t, executable) })
 
 	t.Run("状態と優先順位と読み取り専用", func(t *testing.T) {
 		for _, tc := range []struct {

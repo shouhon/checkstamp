@@ -16,7 +16,7 @@ const helpText = `checkstamp - 検証結果と指定した入力の状態を結�
   checkstamp --help
   checkstamp --version
   checkstamp list [--label <名前>] [--limit <件数>] [--json-summary]
-  checkstamp status <実行ID> [--json | --json-summary | --json-changes]
+  checkstamp status <実行ID> [<実行ID> ...] [--json | --json-summary | --json-changes]
   checkstamp run --label <名前> --input <対象> [--input <対象> ...] [--exclude <パターン> ...] [--json | --json-summary | --json-changes] -- <コマンド> [引数...]
   checkstamp <run | status | list> --help / -h
 
@@ -60,6 +60,9 @@ status の終了コード:
   変更件数は実行前後と現在を分け、未確認の件数や終了コードはnullです。
   JSONモードは併用・重複できません。runはどの表示でも詳細な記録を保存します。
   除外条件は通常表示と全JSONモードで確認でき、要約・変更明細ではexclusionsに返します。
+  複数IDは指定順に全件を照合し、全件validの場合だけ0、unknownがあれば2、それ以外は1です。
+  複数IDのJSONはrunsに各結果、statusに全体の判定を持つオブジェクト1件です。
+  例: checkstamp status <テストの実行ID> <静的検査の実行ID> --json-summary
 
 判定の有効範囲:
   指定した入力と記録できた実行条件だけを確認します。

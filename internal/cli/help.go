@@ -35,24 +35,31 @@ Ctrl+C / Ctrl+Breakで中断を通知し、2秒後または再度の中断で子
 const statusHelpText = `checkstamp status - 保存記録と現在の入力を照合する
 
 使い方:
-  checkstamp status <実行ID> [--json | --json-summary | --json-changes]
+  checkstamp status <実行ID> [<実行ID> ...] [--json | --json-summary | --json-changes]
   checkstamp status --help / -h
 
 引数とオプション:
-  <実行ID>        run が表示した小文字16進数32文字のID。list でも探せます。
+  <実行ID>        run が表示した小文字16進数32文字のID。list でも探せます。複数指定できます。
   --json          保存時と現在の入力一覧・差分を含む詳細JSONを返します。
   --json-summary  判定・子の終了コード・実行前後と現在の変更件数・問題を返します。
   --json-changes  要約と changes（実行前後）・current_changes（現在）を返します。
-  JSONモードはいずれか1回だけ、実行IDの後ろに指定します。
+  JSONモードはいずれか1回だけ、すべての実行IDの後ろに指定します。
   確認済みで変更がなければ []、未確認の差分・件数・終了コードはnullです。
 
 使用例:
   checkstamp status 0123456789abcdef0123456789abcdef --json-summary
+  checkstamp status <テストの実行ID> <静的検査の実行ID> --json-summary
 
 記録を作った作業ディレクトリから実行します。入力・除外は保存時の条件を使います。
 子コマンドの再実行、記録や入力の書換えは行いません。標準出力へ結果を返します。
 終了コード: 0=valid、1=stale / failed / unstable / interrupted、2=unknown、64=引数エラー。
 複数の状態は unknown → interrupted → failed → unstable → stale → valid の順に判定します。
+複数IDでは指定順（重複も含む）に全件を照合し、同じ優先順位で全体の判定を返します。
+全件validの場合だけ0、1件でもunknownなら2、それ以外は1です。読めない記録があっても続けます。
+複数IDのJSONはschema_version・command・status（全体の判定）・runs（各結果）を持つ1件です。
+runsの各要素は、指定したJSONモードでの単一IDの結果と同じ形式です。
+全IDを事前に検査し、不正な引数があれば照合せず64を返します。単一IDの出力形式は維持します。
+各IDの入力は順次読み取ります。全件の入力を同じ瞬間の状態に固定するものではありません。
 確認範囲は明示した入力と記録できた実行条件です。未指定入力や外部条件は保証しません。
 ヘルプは単独で指定します。記録や現在の入力は読み取りません。
 `

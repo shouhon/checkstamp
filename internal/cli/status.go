@@ -39,11 +39,7 @@ type statusResult struct {
 }
 
 func runStatus(args []string, stdout, stderr io.Writer) int {
-	result := statusResult{
-		SchemaVersion: record.SchemaVersion, Tool: record.Tool{Name: "checkstamp", Version: version.String()},
-		Command: "status", Status: "unknown", Coverage: record.CoverageLimits(),
-		Changes: []input.Change{}, CurrentChanges: []input.Change{}, Issues: []record.Issue{},
-	}
+	result := newStatusResult("")
 	jsonOutput, jsonSummary, jsonChanges := false, false, false
 	for _, arg := range args {
 		if arg == "--json" || arg == "--json-summary" || arg == "--json-changes" {
@@ -56,7 +52,15 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 			jsonChanges = true
 		}
 	}
-	if len(args) < 1 || len(args) > 2 || len(args) == 2 && args[1] != "--json" && args[1] != "--json-summary" && args[1] != "--json-changes" || !validRunID(args[0]) {
+	idCount := len(args)
+	if idCount > 0 && (args[idCount-1] == "--json" || args[idCount-1] == "--json-summary" || args[idCount-1] == "--json-changes") {
+		idCount--
+	}
+	valid := idCount > 0
+	for _, id := range args[:idCount] {
+		valid = valid && validRunID(id)
+	}
+	if !valid {
 		result.Status = "invalid_arguments"
 		result.Issues = append(result.Issues, record.Issue{Code: "invalid_arguments", Description: "引数が正しくありません。使い方は --help で確認してください。"})
 		invalidArguments(stderr)
@@ -65,21 +69,12 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		}
 		return 64
 	}
+	if idCount > 1 {
+		return runMultipleStatus(args[:idCount], stdout, stderr, jsonOutput, jsonSummary, jsonChanges)
+	}
 	result.RunID = args[0]
 	checkStatus(&result)
-	code := 1
-	switch result.Status {
-	case "valid":
-		code = 0
-	case "unknown":
-		code = 2
-	}
-	if result.Status == "unknown" {
-		fmt.Fprintln(stderr, "checkstamp: 記録の有効性を確認できませんでした。")
-		for _, issue := range result.Issues {
-			fmt.Fprintln(stderr, "checkstamp:", issue.Description)
-		}
-	}
+	reportUnknownStatus(stderr, result)
 	if jsonOutput {
 		if !writeStatusJSON(stdout, stderr, result, jsonSummary, jsonChanges) {
 			return 2
@@ -87,7 +82,36 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	} else if !writeStatusText(stdout, stderr, result) {
 		return 2
 	}
-	return code
+	return statusExitCode(result.Status)
+}
+
+func newStatusResult(id string) statusResult {
+	return statusResult{
+		SchemaVersion: record.SchemaVersion, Tool: record.Tool{Name: "checkstamp", Version: version.String()},
+		Command: "status", RunID: id, Status: "unknown", Coverage: record.CoverageLimits(),
+		Changes: []input.Change{}, CurrentChanges: []input.Change{}, Issues: []record.Issue{},
+	}
+}
+
+func statusExitCode(status string) int {
+	switch status {
+	case "valid":
+		return 0
+	case "unknown":
+		return 2
+	default:
+		return 1
+	}
+}
+
+func reportUnknownStatus(stderr io.Writer, result statusResult) {
+	if result.Status != "unknown" {
+		return
+	}
+	fmt.Fprintln(stderr, "checkstamp: 記録の有効性を確認できませんでした。")
+	for _, issue := range result.Issues {
+		fmt.Fprintln(stderr, "checkstamp:", issue.Description)
+	}
 }
 
 func validRunID(id string) bool {

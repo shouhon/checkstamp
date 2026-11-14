@@ -127,6 +127,23 @@ $runId = 'ここを表示された実行IDに置き換える'
 checkstamp status $runId
 ```
 
+選んだ複数の実行IDをまとめて照合できます。例えばテスト・静的検査・型検査の結果を採用する前に、同じ作業ディレクトリで実行します。
+
+```powershell
+$runIds = @('テストの実行ID', '静的検査の実行ID', '型検査の実行ID')
+$json = checkstamp status @runIds --json-summary
+$statusExit = $LASTEXITCODE
+$result = $json | ConvertFrom-Json
+$result.status # 全体の判定
+$result.runs   # 各IDの判定・子の終了コード・変更件数・問題
+```
+
+全件 `valid` の場合だけ終了コード0、1件でも `unknown` なら2、それ以外は1です。全体の判定も、下表の優先順位を使います。読めない記録があっても他のIDを照合し、最後の結果だけで成功を判断しません。外側のスクリプトへ終了コードを返す場合は、保持した `$statusExit` を使います。
+
+複数IDのJSONは `schema_version`・`command`・`status`（全体）・`runs`（各結果）を持つオブジェクト1件です。`--json`・`--json-summary`・`--json-changes` の各モードで、`runs` の各要素は単一IDの結果と同じ形式になります。単一IDの出力は従来どおりです。
+
+指定順と重複を保ち、各IDの入力・除外条件を使います。全IDを事前に検査し、不正な引数があれば照合せず64を返します。その場合のJSONは従来の `invalid_arguments` の形式です。各IDを順次読み取るため、全件の入力を同じ瞬間の状態に固定するものではありません。
+
 | 判定 | 意味 | `status` の終了コード |
 | --- | --- | --- |
 | `valid` | 検証に成功し、実行前後と現在の入力が一致している | 0 |
