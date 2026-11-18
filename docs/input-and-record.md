@@ -60,6 +60,8 @@ M2の内部基盤、M3の `run`・`status`、M4のWindows中断処理を実装�
 
 入力を収集し、`exec.LookPath` で通常の実行ファイル（`.exe` / `.com`）を解決してから開始記録を保存します。保存成功後だけ子を作成します。スクリプトの暗黙実行や、検索時に安全でない作業ディレクトリへの暗黙の解決は行いません。Windows APIへ渡すコマンド行は、Go標準の `syscall.EscapeArg` で引数ごとに構成します。これはGoやMicrosoftのCランタイムと同じ規則で引数を読む実行ファイルを対象とし、独自の解析規則を持つ実行ファイルでの解釈までは保証しません。
 
+開始記録を保存できない場合は、子プロセスを起動せず終了コード125を返します。保存先が最初に開いた場所と同じか確認できなかった場合と、記録ファイルへの保存に失敗した場合は、標準エラーとJSONの `issues` に失敗箇所を示します。JSONの識別子はどちらも `record_start_failed` です。
+
 `CreateProcessW` の環境引数を `NULL` にして親の環境をそのまま継承し、開始時の作業ディレクトリを渡します。通常CLIでは標準入出力のハンドルだけを複製して渡し、ジョブなどの内部ハンドルは継承させません。通常時は子の出力先を保ち、全JSONモードでは両出力を標準エラーへ向けます。出力を結果のために蓄積しません。ファイル以外の書込先を使う内部呼出しでは、固定容量のパイプと `io.Copy` で転送します。
 
 Windowsの[プロセス作成属性](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute)の `PROC_THREAD_ATTRIBUTE_JOB_LIST` で、子を作成時から専用ジョブへ所属させます。ジョブには `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` を設定し、checkstampの強制終了でも管理下の子孫を終了します。ジョブの設定や起動に失敗したときは管理なしで実行せず、開始記録を完了へ変更しません。

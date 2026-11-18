@@ -182,7 +182,14 @@ func runCommand(args []string, stdout, stderr io.Writer) int {
 	defer store.Close()
 	run, err := store.Start(options.label, executable, options.command[1:], before)
 	if err != nil {
-		return fail(125, "record_start_failed", "開始記録を保存できませんでした。子プロセスは起動していません。")
+		description := "開始記録を保存できませんでした。"
+		switch {
+		case errors.Is(err, record.ErrWriteLocation):
+			description += "保存先が最初に開いた場所と同じか確認できませんでした。"
+		case errors.Is(err, record.ErrWriteFile):
+			description = "開始記録のファイルへの保存に失敗しました。"
+		}
+		return fail(125, "record_start_failed", description+"子プロセスは起動していません。")
 	}
 	result.RunID = run.ID()
 	fmt.Fprintln(stderr, "checkstamp: 実行ID:", run.ID())

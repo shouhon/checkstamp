@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -23,6 +24,12 @@ import (
 const ownerName = "owner"
 const ownerContent = "checkstamp storage\nschema_version: 1\n"
 const maxRecordBytes = 64 << 20
+
+// ErrWriteLocation は保存先が最初に開いた場所と同じか確認できないことを示す。
+var ErrWriteLocation = fmt.Errorf("%w: 保存先の同一性を確認できませんでした。", ErrWrite)
+
+// ErrWriteFile は記録ファイルの作成・書き込み・置換に失敗したことを示す。
+var ErrWriteFile = fmt.Errorf("%w: 記録ファイルへの保存に失敗しました。", ErrWrite)
 
 // Store は所有確認済みの保存先。Openを除いてディレクトリの作成はしない。
 type Store struct {
@@ -124,8 +131,11 @@ func randomID() (string, error) {
 
 // Start は衝突しない実行IDで開始記録を保存する。成功してから子プロセスを起動する。
 func (s *Store) Start(label, executable string, args []string, before input.Snapshot) (*Run, error) {
-	if !s.writable || !s.atOriginalLocation() {
+	if !s.writable {
 		return nil, ErrWrite
+	}
+	if !s.atOriginalLocation() {
+		return nil, ErrWriteLocation
 	}
 	id, err := randomID()
 	if err != nil {
@@ -149,10 +159,10 @@ func (s *Store) Start(label, executable string, args []string, before input.Snap
 	// O_EXCLでこの実行だけが使う名前を確保する。強制終了時の空ファイルも成功にはならない。
 	f, err := workspace.OpenFile(s.root, id+".json", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
-		return nil, ErrWrite
+		return nil, ErrWriteFile
 	}
 	if err := f.Close(); err != nil {
-		return nil, ErrWrite
+		return nil, ErrWriteFile
 	}
 	if err := s.write(r); err != nil {
 		return nil, err
@@ -195,7 +205,7 @@ func (r *Run) Complete(exitCode int, after *input.Snapshot, interrupted bool) (R
 
 func (s *Store) write(r Record) error {
 	if !s.atOriginalLocation() {
-		return ErrWrite
+		return ErrWriteLocation
 	}
 	data, err := json.Marshal(r)
 	if err != nil || len(data) >= maxRecordBytes {
@@ -208,21 +218,21 @@ func (s *Store) write(r Record) error {
 	name := "." + r.RunID + "-" + suffix + ".tmp"
 	f, err := workspace.OpenFile(s.root, name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
-		return ErrWrite
+		return ErrWriteFile
 	}
 	defer s.root.Remove(name)
 	_, writeErr := f.Write(data)
 	syncErr := f.Sync()
 	closeErr := f.Close()
 	if writeErr != nil || syncErr != nil || closeErr != nil {
-		return ErrWrite
+		return ErrWriteFile
 	}
 	// 同じディレクトリ内で名前を置換し、読取側へ書きかけのJSONを公開しない。
 	if err := s.root.Rename(name, r.RunID+".json"); err != nil {
-		return ErrWrite
+		return ErrWriteFile
 	}
 	if !s.atOriginalLocation() {
-		return ErrWrite
+		return ErrWriteLocation
 	}
 	return nil
 }

@@ -296,7 +296,7 @@ func TestSaveFailureKeepsStartedRecord(t *testing.T) {
 	if saved, err := reader.Load(run.ID()); !errors.Is(err, record.ErrIncomplete) || saved.Status != "unknown" {
 		t.Fatal("保存失敗した実行が完了扱いになっています")
 	}
-	if _, err := store.Start("起動前", filepath.Join(dir, "検証.exe"), nil, before); !errors.Is(err, record.ErrWrite) {
+	if _, err := store.Start("起動前", filepath.Join(dir, "検証.exe"), nil, before); !errors.Is(err, record.ErrWriteLocation) || !errors.Is(err, record.ErrWrite) {
 		t.Fatalf("開始前の保存失敗 = %v", err)
 	}
 }
@@ -461,6 +461,9 @@ func TestReplacementFailureDoesNotTruncateStartedRecord(t *testing.T) {
 	if !errors.Is(err, record.ErrWrite) || result.Status != "unknown" || *result.ChildExitCode != 0 {
 		t.Fatalf("置換失敗時の結果 = %+v、失敗 = %v", result, err)
 	}
+	if !errors.Is(err, record.ErrWriteFile) {
+		t.Fatalf("記録ファイルの置換失敗を区別できません: %v", err)
+	}
 	retained, err := os.ReadFile(name)
 	if err != nil || !bytes.Equal(original, retained) {
 		t.Fatal("置換の失敗で開始記録が破損しました")
@@ -479,6 +482,9 @@ func TestMovedStorageDoesNotReportValid(t *testing.T) {
 	}
 	if err := os.Mkdir(runs, 0700); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := store.Start("開始前の保存先交換", filepath.Join(dir, "検証.exe"), nil, before); !errors.Is(err, record.ErrWriteLocation) {
+		t.Fatalf("開始記録の保存先の交換を区別できません: %v", err)
 	}
 	result, err := run.Complete(0, &before, false)
 	if !errors.Is(err, record.ErrWrite) || result.Status != "unknown" {
