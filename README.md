@@ -7,10 +7,15 @@ Goプロジェクトでテストに成功した後にコードを修正すると
 ## 利用場面と得られる結果
 
 ```mermaid
+---
+config:
+  flowchart:
+    wrappingWidth: 280
+---
 flowchart TD
-    situation["Goのテストに通った後、コードを修正<br/>前回の結果は今のコードにも使える？"]
-    situation --> action["run で go test ./... の結果と入力の状態を記録<br/>修正後に実行IDを指定して status で照合"]
-    action --> result["指定したファイルの変更を stale と表示<br/>テストをやり直す判断ができる"]
+    situation["Goのテストに通った後でコードを修正<br/>前回の結果はまだ有効？"]
+    situation --> action["run でテスト結果と入力の状態を記録<br/>修正後に実行IDを指定して status で照合"]
+    action --> result["入力が変わっていれば stale と表示<br/>テストをやり直す判断ができる"]
 ```
 
 ```powershell
