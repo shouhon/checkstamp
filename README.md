@@ -14,7 +14,7 @@ config:
 ---
 flowchart TD
     situation["Goのテストに通った後でコードを修正<br/>前回の結果はまだ有効？"]
-    situation --> action["run でテスト結果と入力の状態を記録<br/>修正後に実行IDを指定して status で照合"]
+    situation --> action["run でテスト結果と入力の状態を記録<br/>修正後、実行IDで status を実行"]
     action --> result["入力が変わっていれば stale と表示<br/>テストをやり直す判断ができる"]
 ```
 
